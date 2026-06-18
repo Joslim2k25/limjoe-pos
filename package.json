@@ -1,0 +1,23 @@
+json{
+  "name": "limjoe-pos",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "vite": "^5.0.0"
+  }
+}
+
+I-scroll down, click "Commit changes"
+
+Gawin mo muna ito at sabihin mo sa akin kapag tapos, tapos ipapakita ko sa'yo ang susunod na file (index.html).You've used 90% of your session limit
