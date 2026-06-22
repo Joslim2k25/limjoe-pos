@@ -1,4 +1,4 @@
-javascriptimport React from 'react'
+import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 
@@ -7,7 +7,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <App />
   </React.StrictMode>,
 )
-
-I-click "Commit changes"
-
-Sabihin mo kapag tapos na — ang susunod ay ang pinakamahalaga at pinakamalaki, ang src/App.jsx (ang buong POS code mismo).You've used 90% of your session limit
+Pagkatapos ma-paste, i-click ang "Commit changes".
