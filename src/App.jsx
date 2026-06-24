@@ -933,8 +933,19 @@ export default function App() {
           </div>
 
           {cart.length>0&&(
-            <div style={{ background:"white",borderTop:`1px solid ${C.border}`,maxHeight:85,overflowY:"auto" }}>
-              {cart.map(item=>(<div key={item.key} style={{ display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderBottom:`1px solid ${C.border}` }}><div style={{ flex:1,fontSize:11,color:C.text }}>{item.name} <span style={{ color:C.text3 }}>({item.size})</span></div><button onClick={()=>setQty(item.key,item.qty-1)} style={{ width:20,height:20,border:`1px solid ${C.border}`,background:C.bg3,color:C.text,borderRadius:4,cursor:"pointer",fontWeight:900,fontSize:12 }}>−</button><span style={{ width:18,textAlign:"center",fontWeight:900,color:C.primary,fontSize:12 }}>{item.qty}</span><button onClick={()=>setQty(item.key,item.qty+1)} style={{ width:20,height:20,border:`1px solid ${C.border}`,background:C.bg3,color:C.text,borderRadius:4,cursor:"pointer",fontWeight:900,fontSize:12 }}>+</button><span style={{ fontWeight:700,fontSize:11,color:C.warning,minWidth:44,textAlign:"right" }}>₱{(getFinalPrice(item.price)*item.qty).toFixed(0)}</span></div>))}
+            <div style={{ background:"white",borderTop:`1px solid ${C.border}`,maxHeight:110,overflowY:"auto" }}>
+              {/* Cancel Order button */}
+              <div style={{ display:"flex",justifyContent:"flex-end",padding:"4px 12px",borderBottom:`1px solid ${C.border}` }}>
+                <button onClick={()=>{ if(window.confirm("Cancel lahat ng items sa order?")) setCart([]); }} style={{ padding:"3px 10px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:6,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>🗑️ Cancel Order</button>
+              </div>
+              {cart.map(item=>(<div key={item.key} style={{ display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderBottom:`1px solid ${C.border}` }}>
+                <div style={{ flex:1,fontSize:11,color:C.text }}>{item.name} <span style={{ color:C.text3 }}>({item.size})</span></div>
+                <button onClick={()=>setQty(item.key,item.qty-1)} style={{ width:20,height:20,border:`1px solid ${C.border}`,background:C.bg3,color:C.text,borderRadius:4,cursor:"pointer",fontWeight:900,fontSize:12 }}>−</button>
+                <span style={{ width:18,textAlign:"center",fontWeight:900,color:C.primary,fontSize:12 }}>{item.qty}</span>
+                <button onClick={()=>setQty(item.key,item.qty+1)} style={{ width:20,height:20,border:`1px solid ${C.border}`,background:C.bg3,color:C.text,borderRadius:4,cursor:"pointer",fontWeight:900,fontSize:12 }}>+</button>
+                <span style={{ fontWeight:700,fontSize:11,color:C.warning,minWidth:44,textAlign:"right" }}>₱{(getFinalPrice(item.price)*item.qty).toFixed(0)}</span>
+                <button onClick={()=>{ setCart(prev=>prev.filter(c=>c.key!==item.key)); }} style={{ width:22,height:22,border:`1px solid ${C.danger}`,background:C.dangerBg,color:C.danger,borderRadius:4,cursor:"pointer",fontWeight:900,fontSize:12 }}>🗑️</button>
+              </div>))}
             </div>
           )}
 
