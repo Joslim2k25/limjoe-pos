@@ -281,7 +281,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
 
   async function loadProducts() {
     setLoading(true);
-    const data = await sb("products?select=*&order=category.asc,name.asc");
+    const data = await sb("products?select=*&order=sort_order.asc,name.asc");
     if (data) setProducts(data);
     setLoading(false);
   }
@@ -406,7 +406,7 @@ function InventoryModal({ onClose, toast }) {
 
   async function loadMaterials() {
     setLoading(true);
-    const data = await sb("raw_materials?select=*&order=category.asc,name.asc");
+    const data = await sb("raw_materials?select=*&order=sort_order.asc,name.asc");
     if (data) setMaterials(data);
     setLoading(false);
   }
@@ -560,7 +560,7 @@ export default function App() {
 
   // ── LOAD PRODUCTS FROM SUPABASE ───────────────────────────────────────────
   const loadProducts = async () => {
-    const data = await sb("products?select=*&is_available=eq.true&order=category.asc,name.asc");
+    const data = await sb("products?select=*&is_available=eq.true&order=sort_order.asc,name.asc");
     if (data && data.length > 0) {
       setDbProducts(data);
       // Build categories from DB products
