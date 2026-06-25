@@ -459,6 +459,8 @@ function InventoryModal({ onClose, toast }) {
   const [editQty, setEditQty] = useState("");
   const [filter, setFilter] = useState("all");
   const [searchMat, setSearchMat] = useState("");
+  const [showAddMat, setShowAddMat] = useState(false);
+  const [newMat, setNewMat] = useState({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
 
   useEffect(()=>{ loadMaterials(); }, []);
 
@@ -467,6 +469,17 @@ function InventoryModal({ onClose, toast }) {
     const data = await sb("raw_materials?select=*&order=sort_order.asc,name.asc");
     if (data) setMaterials(data);
     setLoading(false);
+  }
+
+  async function addMaterial() {
+    if (!newMat.name.trim()) { toast("Lagyan ng material name!", "err"); return; }
+    if (!newMat.stock_qty) { toast("Lagyan ng stock qty!", "err"); return; }
+    await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: parseFloat(newMat.stock_qty), reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
+    if (lastSbError) { toast("Hindi na-add: "+lastSbError, "err"); return; }
+    toast("✅ Material added!");
+    setNewMat({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
+    setShowAddMat(false);
+    loadMaterials();
   }
 
   async function saveQty(id) {
@@ -493,8 +506,53 @@ function InventoryModal({ onClose, toast }) {
             <div style={{ fontWeight:900,fontSize:18,color:C.text }}>📦 Raw Materials Inventory</div>
             {lowCount>0&&<div style={{ fontSize:11,color:C.danger,fontWeight:700 }}>⚠️ {lowCount} item(s) na mababa ang stock!</div>}
           </div>
-          <button onClick={onClose} style={{ border:"none",background:C.bg3,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:C.text3 }}>✕</button>
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",background:showAddMat?C.dangerBg:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Material"}</button>
+            <button onClick={onClose} style={{ border:"none",background:C.bg3,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:C.text3 }}>✕</button>
+          </div>
         </div>
+
+        {/* Add Material Form */}
+        {showAddMat&&(
+          <div style={{ padding:"14px 22px",background:C.warningBg,borderBottom:`1px solid #fed7aa` }}>
+            <div style={{ fontWeight:700,fontSize:12,color:C.warning,marginBottom:10 }}>NEW RAW MATERIAL</div>
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
+              <input value={newMat.name} onChange={e=>setNewMat(p=>({...p,name:e.target.value}))} placeholder="Material name*" style={{ ...InputStyle,flex:2,minWidth:140 }}/>
+              <select value={newMat.category} onChange={e=>setNewMat(p=>({...p,category:e.target.value}))} style={{ ...InputStyle,flex:1,minWidth:120 }}>
+                <option value="ingredient">Ingredient</option>
+                <option value="consumable">Consumable</option>
+                <option value="packaging">Packaging</option>
+              </select>
+            </div>
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Unit</div>
+                <select value={newMat.unit} onChange={e=>setNewMat(p=>({...p,unit:e.target.value}))} style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}>
+                  <option value="pcs">pcs</option>
+                  <option value="ml">ml</option>
+                  <option value="g">g</option>
+                  <option value="L">L</option>
+                  <option value="kg">kg</option>
+                </select>
+              </div>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Stock Qty*</div>
+                <input value={newMat.stock_qty} onChange={e=>setNewMat(p=>({...p,stock_qty:e.target.value}))} type="number" placeholder="0" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+              </div>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Reorder Point</div>
+                <input value={newMat.reorder_pt} onChange={e=>setNewMat(p=>({...p,reorder_pt:e.target.value}))} type="number" placeholder="0" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+              </div>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Cost/Unit (₱)</div>
+                <input value={newMat.cost_per_unit} onChange={e=>setNewMat(p=>({...p,cost_per_unit:e.target.value}))} type="number" placeholder="0" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+              </div>
+            </div>
+            <div style={{ display:"flex",justifyContent:"flex-end" }}>
+              <button onClick={addMaterial} style={PriBtn(C.warning)}>Save Material</button>
+            </div>
+          </div>
+        )}
 
         <div style={{ padding:"10px 22px",borderBottom:`1px solid ${C.border}`,background:"white" }}>
           <div style={{ position:"relative" }}>
