@@ -94,6 +94,35 @@ function parseSheetRows(workbook, sheetName) {
   return rows;
 }
 
+// ─── QR PAYMENT MODAL ─────────────────────────────────────────────────────────
+const QR_IMAGE = "https://i.ibb.co/qLyFvcFk/qr-code-4.png";
+
+function QRModal({ onClose, total, paymentMethod }) {
+  const pm = PAYMENT_METHODS.find(p=>p.key===paymentMethod);
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16,fontFamily:"sans-serif" }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:20,padding:"24px 20px",width:"min(360px,95vw)",textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize:32,marginBottom:4 }}>{pm?.emoji}</div>
+        <div style={{ fontWeight:900,fontSize:20,color:pm?.color,marginBottom:2 }}>{pm?.label} Payment</div>
+        <div style={{ fontSize:13,color:"#64748b",marginBottom:16 }}>I-scan ang QR code para magbayad</div>
+        <div style={{ background:"#f8fafc",borderRadius:16,padding:16,marginBottom:16,border:"2px solid #e2e8f0" }}>
+          <img src={QR_IMAGE} alt="QR Code" style={{ width:"100%",maxWidth:240,borderRadius:8,display:"block",margin:"0 auto" }}/>
+        </div>
+        <div style={{ background:"#f0fdf4",borderRadius:12,padding:"12px 16px",marginBottom:16,border:"1px solid #86efac" }}>
+          <div style={{ fontSize:12,color:"#64748b" }}>Amount to Pay</div>
+          <div style={{ fontWeight:900,fontSize:28,color:"#16a34a" }}>₱{total.toFixed(2)}</div>
+        </div>
+        <div style={{ fontSize:11,color:"#94a3b8",marginBottom:16 }}>
+          GCash · Maya · GoTyme · InstaPay · QRPh accepted
+        </div>
+        <button onClick={onClose} style={{ width:"100%",padding:"14px",background:pm?.color||"#16a34a",border:"none",borderRadius:12,color:"white",fontWeight:900,fontSize:16,cursor:"pointer" }}>
+          ✅ Bayad Na — Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── BULK UPLOAD MODAL ────────────────────────────────────────────────────────
 function BulkUploadModal({ onClose, toast, onReloadProducts, onReloadInventory }) {
   const [activeType, setActiveType] = useState("products");
@@ -655,6 +684,7 @@ export default function App() {
   const [discountType, setDiscountType] = useState(null);
   const [orderNum, setOrderNum] = useState(1001);
   const [lastReceipt, setLastReceipt] = useState(null);
+  const [showQR, setShowQR] = useState(false);
   const [expDesc, setExpDesc] = useState("");
   const [expAmt, setExpAmt] = useState("");
   const [debugError, setDebugError] = useState(null);
@@ -876,7 +906,7 @@ export default function App() {
   // ── LOADING ───────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,fontFamily:"sans-serif" }}>
-      <img src="https://i.ibb.co/v4Nnc2bz/limjoelogo.jpg" alt="Limjoe" style={{ width:100,height:100,borderRadius:"50%",objectFit:"cover" }}/>
+      <img src="https://i.ibb.co/0y0bnPkJ/limjoelogo.jpg" alt="Limjoe" style={{ width:100,height:100,borderRadius:"50%",objectFit:"cover" }}/>
       <div style={{ color:C.primary,fontWeight:800,fontSize:20 }}>Loading Limjoe POS...</div>
       <div style={{ color:C.text3 }}>Connecting to cloud ☁️</div>
     </div>
@@ -885,6 +915,7 @@ export default function App() {
   // ── MODALS ────────────────────────────────────────────────────────────────
   const modals = (
     <>
+      {showQR&&<QRModal onClose={()=>setShowQR(false)} total={total} paymentMethod={paymentMethod}/>}
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
       {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast}/>}
@@ -896,7 +927,7 @@ export default function App() {
     <div style={{ background:C.bg,minHeight:"100vh",fontFamily:"sans-serif",color:C.text,padding:16 }}>
       {notif&&<Toast notif={notif}/>} {modals}
       <div style={{ textAlign:"center",paddingTop:10,marginBottom:24 }}>
-        <img src="https://i.ibb.co/v4Nnc2bz/limjoelogo.jpg" alt="Limjoe" style={{ width:70,height:70,borderRadius:"50%",objectFit:"cover",margin:"0 auto 8px",display:"block",border:"3px solid #d97706" }}/>
+        <img src="https://i.ibb.co/0y0bnPkJ/limjoelogo.jpg" alt="Limjoe" style={{ width:70,height:70,borderRadius:"50%",objectFit:"cover",margin:"0 auto 8px",display:"block",border:"3px solid #d97706" }}/>
         <div style={{ fontSize:22,fontWeight:900,letterSpacing:4,color:C.primary }}>LIMJOE</div>
         <div style={{ color:C.text3,fontSize:11 }}>Lemony Juice Station · Cloud POS ☁️</div>
         <div style={{ color:C.text3,fontSize:10,marginTop:2 }}>{new Date().toLocaleDateString("en-PH",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
@@ -999,7 +1030,7 @@ export default function App() {
         {notif&&<Toast notif={notif}/>} {modals}
         {debugError&&<div style={{ position:"fixed",top:60,left:16,right:16,background:"#450a0a",border:"2px solid #ef4444",borderRadius:10,padding:"10px 14px",zIndex:9998,maxWidth:400,margin:"0 auto" }}><div style={{ color:"#fca5a5",fontWeight:900,fontSize:12,marginBottom:4 }}>⚠️ CLOUD SAVE ERROR:</div><div style={{ color:"#fecaca",fontSize:11,fontFamily:"monospace",wordBreak:"break-word" }}>{debugError}</div></div>}
         <div style={{ background:"white",borderRadius:18,padding:"20px 16px",width:"100%",maxWidth:300,fontFamily:"'Courier New',monospace",color:C.text,boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
-          <div style={{ textAlign:"center" }}><img src="https://i.ibb.co/v4Nnc2bz/limjoelogo.jpg" alt="Limjoe" style={{ width:40,height:40,borderRadius:"50%",objectFit:"cover",margin:"0 auto 4px",display:"block" }}/><div style={{ fontSize:16,fontWeight:900,letterSpacing:5 }}>LIMJOE</div><div style={{ fontSize:9,color:C.text3 }}>{lastReceipt.branch}</div></div>
+          <div style={{ textAlign:"center" }}><img src="https://i.ibb.co/0y0bnPkJ/limjoelogo.jpg" alt="Limjoe" style={{ width:40,height:40,borderRadius:"50%",objectFit:"cover",margin:"0 auto 4px",display:"block" }}/><div style={{ fontSize:16,fontWeight:900,letterSpacing:5 }}>LIMJOE</div><div style={{ fontSize:9,color:C.text3 }}>{lastReceipt.branch}</div></div>
           <div style={{ borderTop:"1px dashed #cbd5e1",margin:"8px 0" }}/>
           <div style={{ textAlign:"center",fontSize:10,color:C.text3 }}>Order #{lastReceipt.id} · {lastReceipt.date} · {lastReceipt.time}<br/>{lastReceipt.cashier} · {pm?.emoji} {pm?.label}</div>
           <div style={{ borderTop:"1px dashed #cbd5e1",margin:"8px 0" }}/>
@@ -1078,12 +1109,37 @@ export default function App() {
             <div style={{ display:"flex",borderBottom:`1px solid ${C.border}` }}>
               {[{key:"payment",label:"Payment"},{key:"discount",label:"Discount"},{key:"expense",label:"Expenses"}].map(t=>(<button key={t.key} onClick={()=>setPayTab(t.key)} style={{ flex:1,padding:"9px",border:"none",background:"transparent",color:payTab===t.key?C.primary:C.text3,fontWeight:payTab===t.key?800:600,fontSize:11,cursor:"pointer",borderBottom:payTab===t.key?`2px solid ${C.primary}`:"2px solid transparent" }}>{t.label}</button>))}
             </div>
-            {payTab==="payment"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:5 }}><button onClick={()=>setPaymentMethod("cash")} style={{ padding:"6px 10px",background:paymentMethod==="cash"?C.successBg:"white",border:`1.5px solid ${paymentMethod==="cash"?C.success:C.border}`,borderRadius:6,color:paymentMethod==="cash"?C.success:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>💵 Cash</button>{paymentMethod==="cash"&&[20,50,100,200,500,1000].map(b=>(<button key={b} onClick={()=>setCashGiven(b)} style={{ padding:"6px 9px",background:cashGiven===b?C.successBg:"white",border:`1.5px solid ${cashGiven===b?C.success:C.border}`,borderRadius:6,color:cashGiven===b?C.success:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>₱{b}</button>))}{paymentMethod==="cash"&&<input type="number" value={cashGiven||""} onChange={e=>setCashGiven(parseFloat(e.target.value)||0)} placeholder="₱" style={{ width:65,padding:"6px 7px",fontSize:12,fontWeight:700,borderRadius:6,border:`1.5px solid ${C.border}`,background:"white",color:C.warning,outline:"none" }}/>}</div><div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:4 }}>{PAYMENT_METHODS.filter(p=>p.type==="cashless").map(p=>(<button key={p.key} onClick={()=>{setPaymentMethod(p.key);setCashGiven(total);}} style={{ padding:"6px 10px",background:paymentMethod===p.key?p.color+"11":"white",border:`1.5px solid ${paymentMethod===p.key?p.color:C.border}`,borderRadius:6,color:paymentMethod===p.key?p.color:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>{p.emoji} {p.label}</button>))}</div><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{PAYMENT_METHODS.filter(p=>p.type==="online").map(p=>(<button key={p.key} onClick={()=>{setPaymentMethod(p.key);setCashGiven(total);}} style={{ padding:"6px 10px",background:paymentMethod===p.key?p.color+"11":"white",border:`1.5px solid ${paymentMethod===p.key?p.color:C.border}`,borderRadius:6,color:paymentMethod===p.key?p.color:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>{p.emoji} {p.label}</button>))}</div></div>)}
+            {payTab==="payment"&&(<div style={{ padding:"8px 12px" }}>
+              {/* Payment method buttons */}
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:5 }}>
+                <button onClick={()=>setPaymentMethod("cash")} style={{ padding:"6px 10px",background:paymentMethod==="cash"?C.successBg:"white",border:`1.5px solid ${paymentMethod==="cash"?C.success:C.border}`,borderRadius:6,color:paymentMethod==="cash"?C.success:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>💵 Cash</button>
+                {paymentMethod==="cash"&&[20,50,100,200,500,1000].map(b=>(<button key={b} onClick={()=>setCashGiven(b)} style={{ padding:"6px 9px",background:cashGiven===b?C.successBg:"white",border:`1.5px solid ${cashGiven===b?C.success:C.border}`,borderRadius:6,color:cashGiven===b?C.success:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>₱{b}</button>))}
+                {paymentMethod==="cash"&&<input type="number" value={cashGiven||""} onChange={e=>setCashGiven(parseFloat(e.target.value)||0)} placeholder="₱" style={{ width:65,padding:"6px 7px",fontSize:12,fontWeight:700,borderRadius:6,border:`1.5px solid ${C.border}`,background:"white",color:C.warning,outline:"none" }}/>}
+              </div>
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:4 }}>
+                {PAYMENT_METHODS.filter(p=>p.type==="cashless").map(p=>(<button key={p.key} onClick={()=>{setPaymentMethod(p.key);setCashGiven(total);}} style={{ padding:"6px 10px",background:paymentMethod===p.key?p.color+"11":"white",border:`1.5px solid ${paymentMethod===p.key?p.color:C.border}`,borderRadius:6,color:paymentMethod===p.key?p.color:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>{p.emoji} {p.label}</button>))}
+              </div>
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:4 }}>
+                {PAYMENT_METHODS.filter(p=>p.type==="online").map(p=>(<button key={p.key} onClick={()=>{setPaymentMethod(p.key);setCashGiven(total);}} style={{ padding:"6px 10px",background:paymentMethod===p.key?p.color+"11":"white",border:`1.5px solid ${paymentMethod===p.key?p.color:C.border}`,borderRadius:6,color:paymentMethod===p.key?p.color:C.text2,fontWeight:800,fontSize:11,cursor:"pointer" }}>{p.emoji} {p.label}</button>))}
+              </div>
+              {/* Embedded QR code kapag cashless ang selected */}
+              {["gcash","maya","gotyme"].includes(paymentMethod)&&cart.length>0&&(
+                <div style={{ background:"white",borderRadius:12,padding:"10px",border:`2px solid ${pm?.color}`,marginTop:4,display:"flex",alignItems:"center",gap:12 }}>
+                  <img src="https://i.ibb.co/qLyFvcFk/qr-code-4.png" alt="QR" style={{ width:90,height:90,borderRadius:8,objectFit:"contain",border:"1px solid #e2e8f0" }}/>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:900,fontSize:13,color:pm?.color,marginBottom:2 }}>{pm?.emoji} {pm?.label} QR Code</div>
+                    <div style={{ fontSize:11,color:C.text3,marginBottom:6 }}>Ipakita sa customer para i-scan</div>
+                    <div style={{ fontWeight:900,fontSize:20,color:C.success }}>₱{total.toFixed(2)}</div>
+                    <div style={{ fontSize:10,color:C.text3 }}>GCash · Maya · GoTyme · QRPh</div>
+                  </div>
+                </div>
+              )}
+            </div>)}
             {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>setDiscountType(null)} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>{discountType==="SNR"||discountType==="PWD"?`Gross ÷ 1.12 × 80% | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}</div>}</div>)}
             {payTab==="expense"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,marginBottom:4 }}><input value={expDesc} onChange={e=>setExpDesc(e.target.value)} placeholder="Description" style={{ flex:2,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}/><input type="number" value={expAmt} onChange={e=>setExpAmt(e.target.value)} placeholder="₱" style={{ flex:1,padding:"7px 7px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.warning,outline:"none" }}/><button onClick={addExpense} style={{ padding:"7px 11px",background:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:900,cursor:"pointer",fontSize:13 }}>+</button></div><div style={{ fontSize:9,color:C.danger,fontWeight:700 }}>Today: ₱{getExps(todayStr(),currentBranch.id).reduce((s,e)=>s+parseFloat(e.amount),0).toFixed(2)}</div></div>)}
 
             <div style={{ padding:"8px 12px 10px",display:"flex",alignItems:"center",gap:10,borderTop:`1px solid ${C.border}` }}>
-              <div style={{ flex:1 }}><div style={{ display:"flex",gap:12 }}><div><div style={{ fontSize:9,color:C.text3 }}>Total</div><div style={{ fontWeight:900,fontSize:16,color:C.primary }}>₱{total.toFixed(2)}</div>{discountType&&<div style={{ fontSize:8,color:C.warning }}>-₱{discountAmt.toFixed(2)}</div>}</div><div>{paymentMethod==="cash"&&cashGiven>=total&&cashGiven>0&&<><div style={{ fontSize:9,color:C.text3 }}>Sukli</div><div style={{ fontWeight:900,fontSize:16,color:C.warning }}>₱{change.toFixed(2)}</div></>}{paymentMethod!=="cash"&&<><div style={{ fontSize:9,color:C.text3 }}>Via</div><div style={{ fontSize:13,color:pm?.color,fontWeight:700 }}>{pm?.emoji} {pm?.label}</div></>}</div></div></div>
+              <div style={{ flex:1 }}><div style={{ display:"flex",gap:12 }}><div><div style={{ fontSize:9,color:C.text3 }}>Total</div><div style={{ fontWeight:900,fontSize:16,color:C.primary }}>₱{total.toFixed(2)}</div>{discountType&&<div style={{ fontSize:8,color:C.warning }}>-₱{discountAmt.toFixed(2)}</div>}</div><div>{paymentMethod==="cash"&&cashGiven>=total&&cashGiven>0&&<><div style={{ fontSize:9,color:C.text3 }}>Sukli</div><div style={{ fontWeight:900,fontSize:16,color:C.warning }}>₱{change.toFixed(2)}</div></>}{paymentMethod!=="cash"&&<><div style={{ fontSize:9,color:C.text3 }}>Via</div><div style={{ fontSize:13,color:pm?.color,fontWeight:700 }}>{pm?.emoji} {pm?.label}</div>{["gcash","maya","gotyme"].includes(paymentMethod)&&<button onClick={()=>setShowQR(true)} style={{ display:"block",marginTop:2,padding:"2px 6px",background:pm?.color+"15",border:"1px solid "+pm?.color,borderRadius:4,color:pm?.color,fontSize:9,fontWeight:700,cursor:"pointer" }}>📱 Show QR</button>}</>}</div></div></div>
               <button onClick={doCheckout} disabled={!canCharge} style={{ padding:"13px 20px",background:canCharge?C.primary:C.bg3,border:`1px solid ${canCharge?C.primary:C.border}`,borderRadius:11,color:canCharge?"white":C.text3,fontWeight:900,fontSize:15,cursor:canCharge?"pointer":"not-allowed",minWidth:110 }}>{cart.length===0?"₱0":!canCharge?"Add Cash":"Charge ›"}</button>
             </div>
           </div>
