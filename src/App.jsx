@@ -274,6 +274,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [showAdd, setShowAdd] = useState(false);
+  const [searchProd, setSearchProd] = useState("");
   const [newProd, setNewProd] = useState({ name:"", category: categories[0]?.key||"", price:"", price_medium:"", price_large:"", price_online_medium:"", price_online_large:"", description:"", is_available: true });
   const isAdmin = ROLE_LEVEL[userRole] >= 3;
 
@@ -309,7 +310,8 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
     toast("Deleted: " + name); loadProducts(); onReloadProducts?.();
   }
 
-  const grouped = products.reduce((acc, p) => { if (!acc[p.category]) acc[p.category]=[]; acc[p.category].push(p); return acc; }, {});
+  const filteredProds = searchProd.trim() ? products.filter(p=>p.name.toLowerCase().includes(searchProd.toLowerCase())||p.category.toLowerCase().includes(searchProd.toLowerCase())) : products;
+  const grouped = filteredProds.reduce((acc, p) => { if (!acc[p.category]) acc[p.category]=[]; acc[p.category].push(p); return acc; }, {});
 
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -320,6 +322,14 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
             {isAdmin&&<button onClick={()=>setShowAdd(s=>!s)} style={{ padding:"7px 14px",background:showAdd?C.dangerBg:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAdd?"✕ Cancel":"+ Add Product"}</button>}
             <button onClick={onClose} style={{ border:"none",background:C.bg3,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:C.text3 }}>✕</button>
           </div>
+        </div>
+        <div style={{ padding:"10px 22px",borderBottom:`1px solid ${C.border}`,background:"white" }}>
+          <div style={{ position:"relative" }}>
+            <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.text3 }}>🔍</span>
+            <input value={searchProd} onChange={e=>setSearchProd(e.target.value)} placeholder="Hanapin ang product..." style={{ ...InputStyle,width:"100%",boxSizing:"border-box",paddingLeft:32 }}/>
+            {searchProd&&<button onClick={()=>setSearchProd("")} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",cursor:"pointer",fontSize:14,color:C.text3 }}>✕</button>}
+          </div>
+          {searchProd&&<div style={{ fontSize:11,color:C.text3,marginTop:4 }}>{filteredProds.length===0?<span style={{ color:C.danger }}>❌ Walang nahanap na "{searchProd}"</span>:<span style={{ color:C.success }}>✅ {filteredProds.length} product(s) nahanap</span>}</div>}
         </div>
 
         <div style={{ padding:"16px 22px" }}>
@@ -448,6 +458,7 @@ function InventoryModal({ onClose, toast }) {
   const [editId, setEditId] = useState(null);
   const [editQty, setEditQty] = useState("");
   const [filter, setFilter] = useState("all");
+  const [searchMat, setSearchMat] = useState("");
 
   useEffect(()=>{ loadMaterials(); }, []);
 
@@ -468,7 +479,8 @@ function InventoryModal({ onClose, toast }) {
     toast("✅ Stock updated!"); setEditId(null); loadMaterials();
   }
 
-  const filtered = filter==="all" ? materials : filter==="low" ? materials.filter(m=>m.stock_qty<=m.reorder_pt) : materials.filter(m=>m.category===filter);
+  const baseFiltered = filter==="all" ? materials : filter==="low" ? materials.filter(m=>m.stock_qty<=m.reorder_pt) : materials.filter(m=>m.category===filter);
+  const filtered = searchMat.trim() ? baseFiltered.filter(m=>m.name.toLowerCase().includes(searchMat.toLowerCase())) : baseFiltered;
   const lowCount = materials.filter(m=>m.stock_qty<=m.reorder_pt).length;
 
   const catColors = { ingredient:"#16a34a", consumable:"#2563eb", packaging:"#d97706" };
@@ -484,6 +496,14 @@ function InventoryModal({ onClose, toast }) {
           <button onClick={onClose} style={{ border:"none",background:C.bg3,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:C.text3 }}>✕</button>
         </div>
 
+        <div style={{ padding:"10px 22px",borderBottom:`1px solid ${C.border}`,background:"white" }}>
+          <div style={{ position:"relative" }}>
+            <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.text3 }}>🔍</span>
+            <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang raw material..." style={{ ...InputStyle,width:"100%",boxSizing:"border-box",paddingLeft:32 }}/>
+            {searchMat&&<button onClick={()=>setSearchMat("")} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",cursor:"pointer",fontSize:14,color:C.text3 }}>✕</button>}
+          </div>
+          {searchMat&&<div style={{ fontSize:11,color:C.text3,marginTop:4 }}>{filtered.length===0?<span style={{ color:C.danger }}>❌ Walang nahanap na "{searchMat}"</span>:<span style={{ color:C.success }}>✅ {filtered.length} material(s) nahanap</span>}</div>}
+        </div>
         <div style={{ padding:"12px 22px 6px",display:"flex",gap:6,flexWrap:"wrap",borderBottom:`1px solid ${C.border}` }}>
           {[{key:"all",label:"All"},lowCount>0?{key:"low",label:`⚠️ Low Stock (${lowCount})`}:null,{key:"ingredient",label:"Ingredients"},{key:"consumable",label:"Consumables"},{key:"packaging",label:"Packaging"}].filter(Boolean).map(f=>(
             <button key={f.key} onClick={()=>setFilter(f.key)} style={{ padding:"5px 12px",borderRadius:20,border:`1.5px solid ${filter===f.key?C.accent:C.border}`,background:filter===f.key?C.accent+"15":"white",color:filter===f.key?C.accent:C.text3,fontWeight:filter===f.key?700:500,fontSize:11,cursor:"pointer" }}>{f.label}</button>
@@ -798,7 +818,7 @@ export default function App() {
   // ── LOADING ───────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,fontFamily:"sans-serif" }}>
-      <div style={{ fontSize:60 }}>🍋</div>
+      <img src="https://i.ibb.co/v4Nnc2bz/limjoelogo.jpg" alt="Limjoe" style={{ width:100,height:100,borderRadius:"50%",objectFit:"cover" }}/>
       <div style={{ color:C.primary,fontWeight:800,fontSize:20 }}>Loading Limjoe POS...</div>
       <div style={{ color:C.text3 }}>Connecting to cloud ☁️</div>
     </div>
@@ -818,7 +838,7 @@ export default function App() {
     <div style={{ background:C.bg,minHeight:"100vh",fontFamily:"sans-serif",color:C.text,padding:16 }}>
       {notif&&<Toast notif={notif}/>} {modals}
       <div style={{ textAlign:"center",paddingTop:10,marginBottom:24 }}>
-        <div style={{ width:70,height:70,borderRadius:"50%",background:"#fef9c3",border:`3px solid #d97706`,margin:"0 auto 8px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:34 }}>🍋</div>
+        <img src="https://i.ibb.co/v4Nnc2bz/limjoelogo.jpg" alt="Limjoe" style={{ width:70,height:70,borderRadius:"50%",objectFit:"cover",margin:"0 auto 8px",display:"block",border:"3px solid #d97706" }}/>
         <div style={{ fontSize:22,fontWeight:900,letterSpacing:4,color:C.primary }}>LIMJOE</div>
         <div style={{ color:C.text3,fontSize:11 }}>Lemony Juice Station · Cloud POS ☁️</div>
         <div style={{ color:C.text3,fontSize:10,marginTop:2 }}>{new Date().toLocaleDateString("en-PH",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
@@ -921,7 +941,7 @@ export default function App() {
         {notif&&<Toast notif={notif}/>} {modals}
         {debugError&&<div style={{ position:"fixed",top:60,left:16,right:16,background:"#450a0a",border:"2px solid #ef4444",borderRadius:10,padding:"10px 14px",zIndex:9998,maxWidth:400,margin:"0 auto" }}><div style={{ color:"#fca5a5",fontWeight:900,fontSize:12,marginBottom:4 }}>⚠️ CLOUD SAVE ERROR:</div><div style={{ color:"#fecaca",fontSize:11,fontFamily:"monospace",wordBreak:"break-word" }}>{debugError}</div></div>}
         <div style={{ background:"white",borderRadius:18,padding:"20px 16px",width:"100%",maxWidth:300,fontFamily:"'Courier New',monospace",color:C.text,boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
-          <div style={{ textAlign:"center" }}><div style={{ fontSize:28 }}>🍋</div><div style={{ fontSize:16,fontWeight:900,letterSpacing:5 }}>LIMJOE</div><div style={{ fontSize:9,color:C.text3 }}>{lastReceipt.branch}</div></div>
+          <div style={{ textAlign:"center" }}><img src="https://i.ibb.co/v4Nnc2bz/limjoelogo.jpg" alt="Limjoe" style={{ width:40,height:40,borderRadius:"50%",objectFit:"cover",margin:"0 auto 4px",display:"block" }}/><div style={{ fontSize:16,fontWeight:900,letterSpacing:5 }}>LIMJOE</div><div style={{ fontSize:9,color:C.text3 }}>{lastReceipt.branch}</div></div>
           <div style={{ borderTop:"1px dashed #cbd5e1",margin:"8px 0" }}/>
           <div style={{ textAlign:"center",fontSize:10,color:C.text3 }}>Order #{lastReceipt.id} · {lastReceipt.date} · {lastReceipt.time}<br/>{lastReceipt.cashier} · {pm?.emoji} {pm?.label}</div>
           <div style={{ borderTop:"1px dashed #cbd5e1",margin:"8px 0" }}/>
