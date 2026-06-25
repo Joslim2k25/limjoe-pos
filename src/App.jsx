@@ -274,7 +274,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [showAdd, setShowAdd] = useState(false);
-  const [newProd, setNewProd] = useState({ name:"", category: categories[0]?.key||"", price:"", description:"", is_available: true });
+  const [newProd, setNewProd] = useState({ name:"", category: categories[0]?.key||"", price:"", price_medium:"", price_large:"", price_online_medium:"", price_online_large:"", description:"", is_available: true });
   const isAdmin = ROLE_LEVEL[userRole] >= 3;
 
   useEffect(()=>{ loadProducts(); }, []);
@@ -295,10 +295,10 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
   }
 
   async function addProduct() {
-    if (!newProd.name.trim()||!newProd.price) { toast("Lagyan ng name at price!", "err"); return; }
-    const res = await sb("products", "POST", [{ name: newProd.name.trim(), category: newProd.category, price: parseFloat(newProd.price), description: newProd.description||null, is_available: newProd.is_available }]);
+    if (!newProd.name.trim()||(!newProd.price_medium&&!newProd.price_large)) { toast("Lagyan ng name at kahit isang price!", "err"); return; }
+    const res = await sb("products", "POST", [{ name: newProd.name.trim(), category: newProd.category, price: parseFloat(newProd.price_medium||newProd.price_large||0), price_medium: newProd.price_medium?parseFloat(newProd.price_medium):null, price_large: newProd.price_large?parseFloat(newProd.price_large):null, price_online_medium: newProd.price_online_medium?parseFloat(newProd.price_online_medium):null, price_online_large: newProd.price_online_large?parseFloat(newProd.price_online_large):null, description: newProd.description||null, is_available: newProd.is_available }]);
     if (lastSbError) { toast("Hindi na-add: "+lastSbError, "err"); return; }
-    toast("✅ Product added!"); setNewProd({ name:"", category: categories[0]?.key||"", price:"", description:"", is_available:true }); setShowAdd(false); loadProducts(); onReloadProducts?.();
+    toast("✅ Product added!"); setNewProd({ name:"", category: categories[0]?.key||"", price:"", price_medium:"", price_large:"", price_online_medium:"", price_online_large:"", description:"", is_available:true }); setShowAdd(false); loadProducts(); onReloadProducts?.();
   }
 
   async function deleteProduct(id, name) {
@@ -328,14 +328,38 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
             <div style={{ background:C.successBg,borderRadius:12,padding:16,marginBottom:16,border:`1px solid #86efac` }}>
               <div style={{ fontWeight:700,fontSize:12,color:C.success,marginBottom:10 }}>NEW PRODUCT</div>
               <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
-                <input value={newProd.name} onChange={e=>setNewProd(p=>({...p,name:e.target.value}))} placeholder="Product name" style={{ ...InputStyle,flex:2,minWidth:160 }}/>
-                <input value={newProd.price} onChange={e=>setNewProd(p=>({...p,price:e.target.value}))} placeholder="₱ Price" type="number" style={{ ...InputStyle,flex:1,minWidth:90 }}/>
-              </div>
-              <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
-                <select value={newProd.category} onChange={e=>setNewProd(p=>({...p,category:e.target.value}))} style={{ ...InputStyle,flex:1 }}>
+                <input value={newProd.name} onChange={e=>setNewProd(p=>({...p,name:e.target.value}))} placeholder="Product name*" style={{ ...InputStyle,flex:2,minWidth:160 }}/>
+                <select value={newProd.category} onChange={e=>setNewProd(p=>({...p,category:e.target.value}))} style={{ ...InputStyle,flex:1,minWidth:120 }}>
                   {categories.map(c=><option key={c.key} value={c.key}>{c.key}</option>)}
                 </select>
-                <input value={newProd.description} onChange={e=>setNewProd(p=>({...p,description:e.target.value}))} placeholder="Description (optional)" style={{ ...InputStyle,flex:2 }}/>
+              </div>
+              {/* Price fields */}
+              <div style={{ background:"white",borderRadius:8,padding:"10px 12px",marginBottom:8,border:`1px solid #86efac` }}>
+                <div style={{ fontSize:10,fontWeight:700,color:C.success,marginBottom:6 }}>💰 PRICES (in-store)</div>
+                <div style={{ display:"flex",gap:8,marginBottom:8 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Medium (₱)</div>
+                    <input value={newProd.price_medium} onChange={e=>setNewProd(p=>({...p,price_medium:e.target.value}))} placeholder="₱ Med" type="number" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Large (₱)</div>
+                    <input value={newProd.price_large} onChange={e=>setNewProd(p=>({...p,price_large:e.target.value}))} placeholder="₱ Large" type="number" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                  </div>
+                </div>
+                <div style={{ fontSize:10,fontWeight:700,color:C.text3,marginBottom:6 }}>🛵 ONLINE PRICES</div>
+                <div style={{ display:"flex",gap:8 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Online Med (₱)</div>
+                    <input value={newProd.price_online_medium} onChange={e=>setNewProd(p=>({...p,price_online_medium:e.target.value}))} placeholder="₱ O.Med" type="number" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Online Large (₱)</div>
+                    <input value={newProd.price_online_large} onChange={e=>setNewProd(p=>({...p,price_online_large:e.target.value}))} placeholder="₱ O.Large" type="number" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
+                <input value={newProd.description} onChange={e=>setNewProd(p=>({...p,description:e.target.value}))} placeholder="Description (optional)" style={{ ...InputStyle,flex:1 }}/>
               </div>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <label style={{ display:"flex",alignItems:"center",gap:6,fontSize:13,color:C.text }}>
