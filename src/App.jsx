@@ -687,6 +687,7 @@ export default function App() {
   const [showQR, setShowQR] = useState(false);
   const [expDesc, setExpDesc] = useState("");
   const [expAmt, setExpAmt] = useState("");
+  const [expCategory, setExpCategory] = useState("Cost of Products/Ingredients");
   const [debugError, setDebugError] = useState(null);
 
   // Admin
@@ -768,7 +769,7 @@ export default function App() {
         orders.forEach(o=>{ const bk=`${o.branch_id}_${o.order_date}`; if(!ns[bk])ns[bk]={orders:[]}; ns[bk].orders.push({ id:o.order_num, time:o.order_time?.slice(0,8)||"", date:o.order_date, branch:BRANCHES.find(b=>b.id===o.branch_id)?.name||"", branchId:o.branch_id, cashier:o.cashier_name, paymentMethod:o.payment_method, items:itemsByOrder[o.id]||[], subtotal:parseFloat(o.subtotal||0), discountType:o.discount_type, discountAmt:parseFloat(o.discount_amt||0), total:parseFloat(o.total||0), cash:parseFloat(o.cash_given||0), change:parseFloat(o.change_given||0) }); });
       }
       const ne={};
-      (exps||[]).forEach(e=>{ const bk=`${e.branch_id}_${e.expense_date}`; if(!ne[bk])ne[bk]=[]; ne[bk].push({ desc:e.description, amount:parseFloat(e.amount), time:e.expense_time?.slice(0,8)||"", branch:BRANCHES.find(b=>b.id===e.branch_id)?.name||"" }); });
+      (exps||[]).forEach(e=>{ const bk=`${e.branch_id}_${e.expense_date}`; if(!ne[bk])ne[bk]=[]; ne[bk].push({ desc:e.description, category:e.category||"Miscellaneous", amount:parseFloat(e.amount), time:e.expense_time?.slice(0,8)||"", branch:BRANCHES.find(b=>b.id===e.branch_id)?.name||"", cashier:e.added_by||"" }); });
       const nd={};
       (dtrRows||[]).forEach(r=>{ const k=`${r.employee_id}_${r.branch_id}_${r.dtr_date}`; if(!nd[k])nd[k]=[]; nd[k].push({ in:r.time_in?.slice(0,8)||"", out:r.time_out?r.time_out.slice(0,8):null, name:r.employee_name }); });
       const coh={};
@@ -857,9 +858,9 @@ export default function App() {
   const addExpense = async () => {
     if (!expDesc.trim()||!expAmt) { toast("Lagyan ng description at amount!","err"); return; }
     const dk=todayStr(); const bk=`${currentBranch.id}_${dk}`;
-    const ne={...expenses}; if(!ne[bk])ne[bk]=[]; ne[bk].push({desc:expDesc.trim(),amount:parseFloat(expAmt),time:nowStr(),branch:currentBranch.name});
+    const ne={...expenses}; if(!ne[bk])ne[bk]=[]; ne[bk].push({desc:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),time:nowStr(),branch:currentBranch.name,cashier:currentUser?.name});
     setExpenses(ne); await persist(EXP_KEY,ne); setExpDesc(""); setExpAmt("");
-    try { const r=await sb("expenses","POST",{branch_id:currentBranch.id,description:expDesc.trim(),amount:parseFloat(expAmt),expense_date:dk,expense_time:nowStr(),added_by:currentUser?.name}); if(r&&r[0])toast(`Expense ₱${parseFloat(expAmt).toLocaleString()} saved ☁️`); else toast("⚠️ Local only","err"); } catch {}
+    try { const r=await sb("expenses","POST",{branch_id:currentBranch.id,description:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),expense_date:dk,expense_time:nowStr(),added_by:currentUser?.name}); if(r&&r[0])toast(`Expense ₱${parseFloat(expAmt).toLocaleString()} saved ☁️`); else toast("⚠️ Local only","err"); } catch {}
   };
 
   const createEmployee = async () => {
@@ -887,7 +888,7 @@ export default function App() {
 
   const getOrders = (date, branchId=null) => { if(branchId)return salesData[`${branchId}_${date}`]?.orders||[]; return BRANCHES.flatMap(b=>salesData[`${b.id}_${date}`]?.orders||[]); };
   const getExps = (date, branchId=null) => { if(branchId)return expenses[`${branchId}_${date}`]||[]; return BRANCHES.flatMap(b=>expenses[`${b.id}_${date}`]||[]); };
-  const calcSum = (orders) => { let gross=0; const iM={},pmM={}; orders.forEach(o=>{ gross+=o.total; o.items?.forEach(i=>{const k=`${i.name} (${i.size})`;if(!iM[k])iM[k]={qty:0,sales:0};iM[k].qty+=i.qty;iM[k].sales+=(i.finalPrice||i.price)*i.qty;}); if(!pmM[o.paymentMethod])pmM[o.paymentMethod]={sales:0,count:0}; pmM[o.paymentMethod].sales+=o.total;pmM[o.paymentMethod].count++; }); return{gross,txns:orders.length,top8:Object.entries(iM).sort((a,b)=>b[1].qty-a[1].qty).slice(0,8),pmSales:pmM}; };
+  const calcSum = (orders) => { let gross=0,discountTotal=0; const iM={},pmM={}; orders.forEach(o=>{ gross+=o.total; discountTotal+=o.discountAmt||0; o.items?.forEach(i=>{const k=`${i.name} (${i.size})`;if(!iM[k])iM[k]={qty:0,sales:0};iM[k].qty+=i.qty;iM[k].sales+=(i.finalPrice||i.price)*i.qty;}); if(!pmM[o.paymentMethod])pmM[o.paymentMethod]={sales:0,count:0}; pmM[o.paymentMethod].sales+=o.total;pmM[o.paymentMethod].count++; }); const cashless=(pmM.gcash?.sales||0)+(pmM.maya?.sales||0)+(pmM.gotyme?.sales||0); const online=(pmM.grabfood?.sales||0)+(pmM.foodpanda?.sales||0)+(pmM.sm?.sales||0); return{gross,txns:orders.length,discountTotal,cashless,online,top8:Object.entries(iM).sort((a,b)=>b[1].qty-a[1].qty).slice(0,8),pmSales:pmM}; };
 
   const checkDeposit = () => {
     if (!depositAmt||isNaN(parseFloat(depositAmt))) { toast("Lagay ang deposit amount!","err"); return; }
@@ -1136,7 +1137,31 @@ export default function App() {
               )}
             </div>)}
             {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>setDiscountType(null)} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>{discountType==="SNR"||discountType==="PWD"?`Gross ÷ 1.12 × 80% | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}</div>}</div>)}
-            {payTab==="expense"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,marginBottom:4 }}><input value={expDesc} onChange={e=>setExpDesc(e.target.value)} placeholder="Description" style={{ flex:2,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}/><input type="number" value={expAmt} onChange={e=>setExpAmt(e.target.value)} placeholder="₱" style={{ flex:1,padding:"7px 7px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.warning,outline:"none" }}/><button onClick={addExpense} style={{ padding:"7px 11px",background:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:900,cursor:"pointer",fontSize:13 }}>+</button></div><div style={{ fontSize:9,color:C.danger,fontWeight:700 }}>Today: ₱{getExps(todayStr(),currentBranch.id).reduce((s,e)=>s+parseFloat(e.amount),0).toFixed(2)}</div></div>)}
+            {payTab==="expense"&&(<div style={{ padding:"8px 12px" }}>
+              <select value={expCategory} onChange={e=>setExpCategory(e.target.value)} style={{ width:"100%",marginBottom:5,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}>
+                <option>Cost of Products/Ingredients</option>
+                <option>Shipping Fee</option>
+                <option>Office Supplies</option>
+                <option>Miscellaneous</option>
+              </select>
+              <div style={{ display:"flex",gap:5,marginBottom:4 }}>
+                <input value={expDesc} onChange={e=>setExpDesc(e.target.value)} placeholder="Description" style={{ flex:2,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}/>
+                <input type="number" value={expAmt} onChange={e=>setExpAmt(e.target.value)} placeholder="₱" style={{ flex:1,padding:"7px 7px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.warning,outline:"none" }}/>
+                <button onClick={addExpense} style={{ padding:"7px 11px",background:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:900,cursor:"pointer",fontSize:13 }}>+</button>
+              </div>
+              <div style={{ fontSize:9,color:C.danger,fontWeight:700 }}>Today: ₱{getExps(todayStr(),currentBranch.id).reduce((s,e)=>s+parseFloat(e.amount),0).toFixed(2)}</div>
+              {getExps(todayStr(),currentBranch.id).length>0&&(
+                <div style={{ maxHeight:60,overflowY:"auto",marginTop:4 }}>
+                  {getExps(todayStr(),currentBranch.id).map((e,i)=>(
+                    <div key={i} style={{ display:"flex",justifyContent:"space-between",fontSize:9,color:C.text3,padding:"1px 0" }}>
+                      <span style={{ color:C.info }}>[{e.category||"Misc"}]</span>
+                      <span>{e.desc}</span>
+                      <span style={{ color:C.danger,fontWeight:700 }}>-₱{parseFloat(e.amount).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>)}
 
             <div style={{ padding:"8px 12px 10px",display:"flex",alignItems:"center",gap:10,borderTop:`1px solid ${C.border}` }}>
               <div style={{ flex:1 }}><div style={{ display:"flex",gap:12 }}><div><div style={{ fontSize:9,color:C.text3 }}>Total</div><div style={{ fontWeight:900,fontSize:16,color:C.primary }}>₱{total.toFixed(2)}</div>{discountType&&<div style={{ fontSize:8,color:C.warning }}>-₱{discountAmt.toFixed(2)}</div>}</div><div>{paymentMethod==="cash"&&cashGiven>=total&&cashGiven>0&&<><div style={{ fontSize:9,color:C.text3 }}>Sukli</div><div style={{ fontWeight:900,fontSize:16,color:C.warning }}>₱{change.toFixed(2)}</div></>}{paymentMethod!=="cash"&&<><div style={{ fontSize:9,color:C.text3 }}>Via</div><div style={{ fontSize:13,color:pm?.color,fontWeight:700 }}>{pm?.emoji} {pm?.label}</div>{["gcash","maya","gotyme"].includes(paymentMethod)&&<button onClick={()=>setShowQR(true)} style={{ display:"block",marginTop:2,padding:"2px 6px",background:pm?.color+"15",border:"1px solid "+pm?.color,borderRadius:4,color:pm?.color,fontSize:9,fontWeight:700,cursor:"pointer" }}>📱 Show QR</button>}</>}</div></div></div>
@@ -1152,7 +1177,7 @@ export default function App() {
   if (env==="admin") {
     const rOrders=getOrders(reportDate,bFilter); const rExps=getExps(reportDate,bFilter); const rSum=calcSum(rOrders); const rExpTotal=rExps.reduce((s,e)=>s+parseFloat(e.amount),0); const rNet=rSum.gross-rExpTotal;
     const todayOrders=getOrders(todayStr(),bFilter); const todaySum=calcSum(todayOrders); const todayExp=getExps(todayStr(),bFilter).reduce((s,e)=>s+parseFloat(e.amount),0);
-    const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.sm||0); const net=gross-nonCash-exp; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
+    const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{let totalMins=0;let workDays=0;const start=new Date(payrollFrom),end=new Date(payrollTo);for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const dk=d.toISOString().split("T")[0];let dayMins=0;BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});if(dayMins>0){workDays++;totalMins+=dayMins;}}return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins)};});
 
     const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"}];
@@ -1262,7 +1287,75 @@ export default function App() {
 
           {adminTab==="zreport"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>🔒 Z Reading — {reportDate}</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Z READING — ${reportDate}<br>Printed: ${nowFull()}</div></div><div class="dv"></div><div class="row big"><span>GROSS</span><span>₱${rSum.gross.toFixed(2)}</span></div><div class="row"><span>EXPENSES</span><span>-₱${rExpTotal.toFixed(2)}</span></div><div class="row big"><span>NET</span><span>₱${rNet.toFixed(2)}</span></div><div class="dv"></div><div class="sec">Top 8 Items</div>${rSum.top8.map(([n,d],i)=>`<div class="row"><span>#${i+1} ${n}</span><span>×${d.qty}=₱${d.sales.toFixed(2)}</span></div>`).join("")}<div class="dv"></div><div class="c big">*** END OF DAY ***</div>`)} style={{ padding:"6px 12px",background:C.accent,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print</button></div></div><div style={SR}><SB label="GROSS" val={`₱${rSum.gross.toFixed(0)}`} color={C.success} big/><SB label="EXPENSES" val={`-₱${rExpTotal.toFixed(0)}`} color={C.danger} big/><SB label="NET" val={`₱${rNet.toFixed(0)}`} color={C.warning} big/></div><div style={SEC}>By Channel</div>{PAYMENT_METHODS.map(p=>{const d=rSum.pmSales[p.key];if(!d?.sales)return null;return(<div key={p.key} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"white",borderRadius:9,marginBottom:6,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><span style={{ fontSize:18 }}>{p.emoji}</span><span style={{ flex:1,fontWeight:700,fontSize:13 }}>{p.label}</span><span style={{ color:C.text3,fontSize:11 }}>{d.count} orders</span><span style={{ color:p.color,fontWeight:900,fontSize:15 }}>₱{d.sales.toFixed(2)}</span></div>);})}<div style={SEC}>🏆 Top 8 Items</div>{rSum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1 }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}</div>)}
 
-          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8 }}><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:monthRows.map(r=>{ const inputKey=`${bFilter}_${r.date}`; const isEditing=inputKey in cohInput; const remarksColor=r.remarks==="MATCHED"?C.success:r.remarks==="—"?C.text3:r.remarks.startsWith("OVER")?C.info:C.danger; return(<div key={r.date} style={{ background:"white",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow,marginBottom:10,padding:"12px 14px" }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{r.date}</div><div style={{ fontWeight:900,fontSize:15,color:C.success }}>₱{r.gross.toFixed(2)}</div></div><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8 }}>{PAYMENT_METHODS.filter(p=>p.key!=="cash").map(p=>(<div key={p.key} style={{ background:C.bg3,borderRadius:7,padding:"6px 8px",textAlign:"center" }}><div style={{ fontSize:11,fontWeight:800,color:p.color }}>₱{(r[p.key]||0).toFixed(0)}</div><div style={{ fontSize:8,color:C.text3 }}>{p.emoji} {p.label}</div></div>))}</div><div style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"4px 0",borderTop:`1px solid ${C.border}` }}><span style={{ color:C.text3 }}>Expenses</span><span style={{ color:C.danger,fontWeight:700 }}>-₱{r.expenses.toFixed(2)}</span></div><div style={{ display:"flex",justifyContent:"space-between",fontSize:14,padding:"6px 0",borderTop:`1px solid ${C.border}`,fontWeight:900 }}><span style={{ color:C.text }}>NET SALES</span><span style={{ color:C.warning }}>₱{r.net.toFixed(2)}</span></div>{bFilter!==null&&(<div style={{ marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.border}` }}><div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}><span style={{ fontSize:11,color:C.text3,minWidth:90 }}>Cash on Hand:</span><input type="number" value={isEditing?cohInput[inputKey]:(r.cashOnHand??"")} onChange={e=>setCohInput(prev=>({...prev,[inputKey]:e.target.value}))} placeholder="₱0.00" style={{ flex:1,minWidth:90,padding:"6px 9px",fontSize:13,fontWeight:700,borderRadius:7,border:`1.5px solid ${C.border}`,color:C.warning }}/><button onClick={()=>{ const val=parseFloat(isEditing?cohInput[inputKey]:r.cashOnHand); if(isNaN(val)){toast("Lagay ng valid amount!","err");return;} saveCashOnHand(bFilter,r.date,val); setCohInput(prev=>{const c={...prev};delete c[inputKey];return c;}); }} style={{ padding:"6px 14px",background:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save</button></div>{r.remarks!=="—"&&(<div style={{ marginTop:8,padding:"6px 10px",background:remarksColor+"15",borderRadius:7,fontSize:12,fontWeight:800,color:remarksColor,textAlign:"center" }}>{r.remarks==="MATCHED"?"✅ MATCHED":`⚠️ ${r.remarks}`}</div>)}</div>)}</div>); })}</div>)}
+          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8 }}><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:(
+  <div style={{ overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+    <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800 }}>
+      <thead>
+        <tr style={{ background:"#1a1a2e",color:"white" }}>
+          <th style={{ padding:"10px 10px",textAlign:"left",fontWeight:700,whiteSpace:"nowrap" }}>📅 Date</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac" }}>Gross</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd" }}>💚 GCash</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd" }}>💙 Maya</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd" }}>🏦 GoTyme</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#f9a8d4" }}>🐼 FoodPanda</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac" }}>🚗 GrabFood</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac" }}>🏪 SM Online</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5" }}>Discount</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5" }}>Expenses</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fde68a" }}>NET SALES</th>
+          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#c4b5fd" }}>Cash on Hand</th>}
+          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700 }}>Status</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {monthRows.map((r,idx)=>{ 
+          const inputKey=`${bFilter}_${r.date}`;
+          const isEditing=inputKey in cohInput;
+          const remarksColor=r.remarks==="MATCHED"?C.success:r.remarks==="—"?C.text3:r.remarks.startsWith("OVER")?C.info:C.danger;
+          return(
+            <tr key={r.date} style={{ background:idx%2===0?"white":"#f8fafc",borderBottom:`1px solid ${C.border}` }}>
+              <td style={{ padding:"9px 10px",fontWeight:700,color:C.text,whiteSpace:"nowrap" }}>{r.date}<span style={{ color:C.text3,fontWeight:400,marginLeft:4,fontSize:10 }}>({r.txns} orders)</span></td>
+              <td style={{ padding:"9px 8px",textAlign:"right",fontWeight:700,color:C.success }}>₱{r.gross.toFixed(2)}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.gcash||0)>0?"#2563eb":C.text3 }}>{(r.gcash||0)>0?`₱${(r.gcash||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.maya||0)>0?"#0284c7":C.text3 }}>{(r.maya||0)>0?`₱${(r.maya||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.gotyme||0)>0?C.warning:C.text3 }}>{(r.gotyme||0)>0?`₱${(r.gotyme||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.foodpanda||0)>0?"#db2777":C.text3 }}>{(r.foodpanda||0)>0?`₱${(r.foodpanda||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.grabfood||0)>0?C.success:C.text3 }}>{(r.grabfood||0)>0?`₱${(r.grabfood||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.sm||0)>0?C.info:C.text3 }}>{(r.sm||0)>0?`₱${(r.sm||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:(r.discAmt||0)>0?C.danger:C.text3 }}>{(r.discAmt||0)>0?`-₱${(r.discAmt||0).toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",color:r.expenses>0?C.danger:C.text3 }}>{r.expenses>0?`-₱${r.expenses.toFixed(2)}`:"—"}</td>
+              <td style={{ padding:"9px 8px",textAlign:"right",fontWeight:900,color:C.warning }}>₱{r.net.toFixed(2)}</td>
+              {bFilter!==null&&<td style={{ padding:"9px 8px",textAlign:"right" }}>
+                <div style={{ display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end" }}>
+                  <input type="number" value={isEditing?cohInput[inputKey]:(r.cashOnHand??"")} onChange={e=>setCohInput(prev=>({...prev,[inputKey]:e.target.value}))} placeholder="₱" style={{ width:80,padding:"4px 6px",fontSize:11,fontWeight:700,borderRadius:6,border:`1.5px solid ${C.border}`,color:C.warning,textAlign:"right" }}/>
+                  <button onClick={()=>{ const val=parseFloat(isEditing?cohInput[inputKey]:r.cashOnHand); if(isNaN(val)){toast("Lagay ng valid amount!","err");return;} saveCashOnHand(bFilter,r.date,val); setCohInput(prev=>{const c={...prev};delete c[inputKey];return c;}); }} style={{ padding:"4px 8px",background:C.primary,border:"none",borderRadius:6,color:"white",fontWeight:700,fontSize:10,cursor:"pointer" }}>Save</button>
+                </div>
+              </td>}
+              {bFilter!==null&&<td style={{ padding:"9px 8px",textAlign:"center" }}>
+                {r.remarks!=="—"?<span style={{ padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:remarksColor+"20",color:remarksColor }}>{r.remarks==="MATCHED"?"✅ OK":r.remarks}</span>:<span style={{ color:C.text3,fontSize:10 }}>—</span>}
+              </td>}
+            </tr>
+          );
+        })}
+        {/* TOTALS ROW */}
+        <tr style={{ background:"#1a1a2e",color:"white",fontWeight:900 }}>
+          <td style={{ padding:"10px 10px",fontWeight:900 }}>TOTAL ({monthRows.reduce((s,r)=>s+r.txns,0)} orders)</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#86efac" }}>₱{monthRows.reduce((s,r)=>s+r.gross,0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#93c5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.gcash||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#93c5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.maya||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#93c5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.gotyme||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#f9a8d4" }}>₱{monthRows.reduce((s,r)=>s+(r.foodpanda||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#86efac" }}>₱{monthRows.reduce((s,r)=>s+(r.grabfood||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#86efac" }}>₱{monthRows.reduce((s,r)=>s+(r.sm||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#fca5a5" }}>-₱{monthRows.reduce((s,r)=>s+(r.discAmt||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#fca5a5" }}>-₱{monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#fde68a",fontSize:13 }}>₱{monthRows.reduce((s,r)=>s+r.net,0).toFixed(2)}</td>
+          {bFilter!==null&&<td colSpan={2}></td>}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+)}</div>)}
 
           {adminTab==="channels"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💳 Sales Channels</div><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div><div style={SR}><SB label="Cash" val={`₱${Object.entries(rSum.pmSales).filter(([k])=>PAYMENT_METHODS.find(p=>p.key===k&&p.type==="cash")).reduce((s,[,d])=>s+d.sales,0).toFixed(0)}`} color={C.success}/><SB label="Cashless" val={`₱${Object.entries(rSum.pmSales).filter(([k])=>PAYMENT_METHODS.find(p=>p.key===k&&p.type==="cashless")).reduce((s,[,d])=>s+d.sales,0).toFixed(0)}`} color={C.info}/><SB label="Online" val={`₱${Object.entries(rSum.pmSales).filter(([k])=>PAYMENT_METHODS.find(p=>p.key===k&&p.type==="online")).reduce((s,[,d])=>s+d.sales,0).toFixed(0)}`} color="#db2777"/></div>{PAYMENT_METHODS.map(p=>{const d=rSum.pmSales[p.key];if(!d?.sales)return null;return(<div key={p.key} style={{ display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"white",borderRadius:10,marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><span style={{ fontSize:22 }}>{p.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:13 }}>{p.label}</div><div style={{ fontSize:10,color:C.text3 }}>{d.count} orders · {p.type}</div></div><div style={{ fontWeight:900,fontSize:18,color:p.color }}>₱{d.sales.toFixed(2)}</div></div>);})} {Object.keys(rSum.pmSales).length===0&&<div style={EM}>Walang sales</div>}</div>)}
 
