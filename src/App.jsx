@@ -19,6 +19,21 @@ const sb = async (path, method = "GET", body = null, extraHeaders = {}) => {
   } catch (e) { lastSbError = e.message; return null; }
 };
 
+// ─── AUDIT LOG ───────────────────────────────────────────────────────────────
+const auditLog = async (action_type, action_detail, user, branch_id=null, branch_name=null, reference_id=null) => {
+  try {
+    await sb("audit_logs", "POST", {
+      action_type,
+      action_detail,
+      performed_by: user?.name || "Unknown",
+      role: user?.role || "unknown",
+      branch_id: branch_id || null,
+      branch_name: branch_name || null,
+      reference_id: reference_id ? String(reference_id) : null,
+    });
+  } catch(e) { console.warn("Audit log failed:", e); }
+};
+
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const BRANCHES = [
   { id: 1, name: "Branch 1" }, { id: 2, name: "Branch 2" },
@@ -481,7 +496,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
 }
 
 // ─── INVENTORY MODAL ─────────────────────────────────────────────────────────
-function InventoryModal({ onClose, toast }) {
+function InventoryModal({ onClose, toast, canDelete=true }) {
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState(null);
@@ -589,7 +604,7 @@ function InventoryModal({ onClose, toast }) {
     if (!newMat.stock_qty) { toast("Lagyan ng stock qty!", "err"); return; }
     await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: parseFloat(newMat.stock_qty), reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
     if (lastSbError) { toast("Hindi na-add: "+lastSbError, "err"); return; }
-    toast("✅ Material added!");
+    toast("✅ Material added!"); auditLog('INVENTORY_ADD', `New material added: ${newMat.name.trim()} — ${newMat.stock_qty} ${newMat.unit}`, {name:'Admin/Manager',role:'admin'});
     setNewMat({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
     setShowAddMat(false);
     loadMaterials();
@@ -797,6 +812,8 @@ export default function App() {
   const [showAddEmp, setShowAddEmp] = useState(false);
   const [cashOnHand, setCashOnHand] = useState({});
   const [cohInput, setCohInput] = useState({});
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditFilter, setAuditFilter] = useState("ALL");
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
@@ -902,7 +919,7 @@ export default function App() {
     setLoginAttempts(0); setPinError(""); setPinInput("");
     if (pinMode==="dtr-in") { const eb=findActiveBranchFor(emp.id); if(eb){setPinError(`${emp.name} naka-login pa sa ${eb.name}!`);return;} const nd={...dtrData}; const k=`${emp.id}_${currentBranch.id}_${todayStr()}`; if(!nd[k])nd[k]=[]; nd[k].push({in:nowStr(),out:null,name:emp.name}); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:currentBranch.id,dtr_date:todayStr(),time_in:nowStr()}); toast(`🟢 TIME IN: ${emp.emoji} ${emp.name}`); setPinMode(""); return; }
     if (pinMode==="dtr-out") { const ab=findActiveBranchFor(emp.id); if(!ab){setPinError(`${emp.name} hindi naka-time in!`);return;} const nd={...dtrData}; const k=`${emp.id}_${ab.id}_${todayStr()}`; const entry=nd[k][nd[k].length-1]; entry.out=nowStr(); const tm=nd[k].filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:ab.id,dtr_date:todayStr(),time_in:entry.in,time_out:entry.out}); toast(`🔴 TIME OUT: ${emp.emoji} ${emp.name} | Total: ${formatHrs(tm)}`); setPinMode(""); return; }
-    if (pinMode==="cashier-login") { if(ROLE_LEVEL[emp.role]>=3){setPinError("Admin/Owner — gamitin ang Admin Portal.");return;} if(emp.branchId&&emp.branchId!==currentBranch.id){setPinError(`${emp.name} ay nasa ${BRANCHES.find(b=>b.id===emp.branchId)?.name} lang.`);return;} setCurrentUser(emp); setCart([]); setActiveCat(activeCategories[0]?.key||"JUICE"); setDiscountType(null); setCashGiven(0); setPaymentMethod("cash"); setPosScreen("pos"); setEnv("cashier"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); return; }
+    if (pinMode==="cashier-login") { if(ROLE_LEVEL[emp.role]>=3){setPinError("Admin/Owner — gamitin ang Admin Portal.");return;} if(emp.branchId&&emp.branchId!==currentBranch.id){setPinError(`${emp.name} ay nasa ${BRANCHES.find(b=>b.id===emp.branchId)?.name} lang.`);return;} setCurrentUser(emp); setCart([]); setActiveCat(activeCategories[0]?.key||"JUICE"); setDiscountType(null); setCashGiven(0); setPaymentMethod("cash"); setPosScreen("pos"); setEnv("cashier"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); auditLog("LOGIN", `${emp.name} logged in as ${emp.role}`, emp, currentBranch.id, currentBranch.name); return; }
     if (pinMode==="admin-login") { if(ROLE_LEVEL[emp.role]<3){setPinError("Owner/Admin lang.");return;} setCurrentUser(emp); setEnv("admin"); setAdminTab("dashboard"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); return; }
   };
 
@@ -954,7 +971,7 @@ export default function App() {
     const dk=todayStr(); const bk=`${currentBranch.id}_${dk}`;
     const ne={...expenses}; if(!ne[bk])ne[bk]=[]; ne[bk].push({desc:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),time:nowStr(),branch:currentBranch.name,cashier:currentUser?.name});
     setExpenses(ne); await persist(EXP_KEY,ne); setExpDesc(""); setExpAmt("");
-    try { const r=await sb("expenses","POST",{branch_id:currentBranch.id,description:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),expense_date:dk,expense_time:nowStr(),added_by:currentUser?.name}); if(r&&r[0])toast(`Expense ₱${parseFloat(expAmt).toLocaleString()} saved ☁️`); else toast("⚠️ Local only","err"); } catch {}
+    try { const r=await sb("expenses","POST",{branch_id:currentBranch.id,description:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),expense_date:dk,expense_time:nowStr(),added_by:currentUser?.name}); if(r&&r[0]){toast(`Expense ₱${parseFloat(expAmt).toLocaleString()} saved ☁️`); auditLog('EXPENSE', `₱${parseFloat(expAmt).toFixed(2)} — ${expCategory} — ${expDesc.trim()}`, currentUser, currentBranch.id, currentBranch.name);} else toast("⚠️ Local only","err"); } catch {}
   };
 
   const createEmployee = async () => {
@@ -997,6 +1014,14 @@ export default function App() {
   useEffect(()=>{
     (async()=>{ const mats=await sb("raw_materials?select=id,stock_qty,reorder_pt"); if(mats) setLowStockCount(mats.filter(m=>m.stock_qty<=m.reorder_pt).length); })();
   },[showInventory]);
+
+  useEffect(()=>{
+    if(adminTab==="audit"){
+      sb("audit_logs?order=created_at.desc&limit=200").then(data=>{
+        if(data) setAuditLogs(data);
+      });
+    }
+  },[adminTab]);
 
   // ── LOADING ───────────────────────────────────────────────────────────────
   if (loading) return (
@@ -1088,7 +1113,7 @@ export default function App() {
       )}
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
-      {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast}/>}
+      {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2}/>}
     </>
   );
 
@@ -1187,6 +1212,9 @@ export default function App() {
         </div>
 
         {currentUser?.role==="manager"&&(<button onClick={()=>setPosScreen("monthly")} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12 }}>📅 Monthly Report — {currentBranch.name}</button>)}
+        <button onClick={()=>setShowInventory(true)} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+          📦 Inventory {lowStockCount>0&&<span style={{ background:C.danger,color:"white",borderRadius:20,padding:"1px 8px",fontSize:12 }}>{lowStockCount} Low Stock!</span>}
+        </button>
 
         <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
           <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:8 }}>📋 X READING — {currentBranch.name}</div>
@@ -1225,7 +1253,7 @@ export default function App() {
                       const amt=parseFloat(cashierCohInput);
                       if(isNaN(amt)||amt<0){toast("Lagay ng valid amount!","err");return;}
                       if(!window.confirm(`I-submit ang Cash on Hand: ₱${amt.toFixed(2)}?\n\nHindi na ito mababago.`))return;
-                      await saveCashOnHand(currentBranch.id,todayStr(),amt);
+                      await saveCashOnHand(currentBranch.id,todayStr(),amt); auditLog('CASH_ON_HAND', `Cash on Hand submitted: ₱${amt.toFixed(2)} — Net Sales: ₱${todayNet.toFixed(2)}`, currentUser, currentBranch.id, currentBranch.name);
                       const diff=Math.round((amt-todayNet)*100)/100;
                       const status=Math.abs(diff)<1?"MATCHED":diff>0?"OVER":"SHORT";
                       setCashierCohResult({amount:amt,net:todayNet,diff,status});
@@ -1426,7 +1454,7 @@ export default function App() {
     const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{let totalMins=0;let workDays=0;const start=new Date(payrollFrom),end=new Date(payrollTo);for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const dk=d.toISOString().split("T")[0];let dayMins=0;BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});if(dayMins>0){workDays++;totalMins+=dayMins;}}return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins)};});
 
-    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"}];
+    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
 
     return (
       <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden",color:C.text }}>
@@ -1481,6 +1509,48 @@ export default function App() {
           )}
 
           {/* ── INVENTORY TAB ── */}
+          {adminTab==="audit"&&(<div>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}>
+              <div style={PT}>📝 Audit Trail</div>
+              <button onClick={()=>sb("audit_logs?order=created_at.desc&limit=200").then(d=>{if(d)setAuditLogs(d);})} style={{ padding:"6px 12px",background:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🔄 Refresh</button>
+            </div>
+            <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginBottom:12 }}>
+              {["ALL","LOGIN","ORDER_PUNCH","VOID","EXPENSE","INVENTORY_ADD","INVENTORY_ADJUST","PRODUCT_EDIT","PRODUCT_DELETE","CASH_ON_HAND"].map(f=>(
+                <button key={f} onClick={()=>setAuditFilter(f)} style={{ padding:"5px 10px",background:auditFilter===f?C.primary:"white",border:`1px solid ${auditFilter===f?C.primary:C.border}`,borderRadius:20,color:auditFilter===f?"white":C.text2,fontWeight:700,fontSize:10,cursor:"pointer" }}>{f}</button>
+              ))}
+            </div>
+            {auditLogs.filter(l=>auditFilter==="ALL"||l.action_type===auditFilter).length===0
+              ?<div style={EM}>Walang audit logs</div>
+              :auditLogs.filter(l=>auditFilter==="ALL"||l.action_type===auditFilter).map((log,i)=>{
+                const typeColor={LOGIN:C.success,ORDER_PUNCH:C.primary,VOID:C.danger,EXPENSE:C.warning,INVENTORY_ADD:"#0891b2",INVENTORY_ADJUST:"#0891b2",PRODUCT_EDIT:"#7c3aed",PRODUCT_DELETE:C.danger,CASH_ON_HAND:C.warning}[log.action_type]||C.text3;
+                const typeEmoji={LOGIN:"🔐",ORDER_PUNCH:"🧾",VOID:"🚫",EXPENSE:"💸",INVENTORY_ADD:"📦",INVENTORY_ADJUST:"📦",PRODUCT_EDIT:"🛍️",PRODUCT_DELETE:"🗑️",CASH_ON_HAND:"💰"}[log.action_type]||"📝";
+                return(
+                  <div key={i} style={{ background:"white",borderRadius:10,padding:"10px 14px",marginBottom:6,border:`1px solid ${C.border}`,borderLeft:`4px solid ${typeColor}` }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8 }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:3 }}>
+                          <span style={{ fontSize:14 }}>{typeEmoji}</span>
+                          <span style={{ fontWeight:800,fontSize:11,color:typeColor,background:typeColor+"15",padding:"1px 7px",borderRadius:20 }}>{log.action_type}</span>
+                          {log.reference_id&&<span style={{ fontSize:10,color:C.text3 }}>#{log.reference_id}</span>}
+                        </div>
+                        <div style={{ fontSize:12,color:C.text,marginBottom:3 }}>{log.action_detail}</div>
+                        <div style={{ display:"flex",gap:10,fontSize:10,color:C.text3 }}>
+                          <span>👤 {log.performed_by}</span>
+                          <span style={{ color:ROLE_COLOR[log.role]||C.text3 }}>({log.role})</span>
+                          {log.branch_name&&<span>📍 {log.branch_name}</span>}
+                        </div>
+                      </div>
+                      <div style={{ fontSize:10,color:C.text3,whiteSpace:"nowrap",textAlign:"right" }}>
+                        <div>{log.created_at?.slice(0,10)}</div>
+                        <div>{log.created_at?.slice(11,19)}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>)}
+
           {adminTab==="inventory"&&(
             <div>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
@@ -1529,7 +1599,7 @@ export default function App() {
             </div>
           )}
 
-          {adminTab==="xreport"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📋 X Reading</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">X READING — ${reportDate}<br>Printed: ${nowFull()}</div></div><div class="dv"></div><div class="row big"><span>Gross</span><span>₱${rSum.gross.toFixed(2)}</span></div><div class="row"><span>Expenses</span><span>-₱${rExpTotal.toFixed(2)}</span></div><div class="row big"><span>NET</span><span>₱${rNet.toFixed(2)}</span></div><div class="row"><span>Txns</span><span>${rOrders.length}</span></div><div class="dv"></div><div class="sec">Top 8 Items</div>${rSum.top8.map(([n,d],i)=>`<div class="row"><span>#${i+1} ${n}</span><span>×${d.qty}=₱${d.sales.toFixed(2)}</span></div>`).join("")}<div class="dv"></div><div class="sec">Orders</div>${rOrders.map(o=>`<div class="row" style="font-size:10px"><span>#${o.id} ${o.time} ${o.cashier}</span><span>₱${o.total.toFixed(2)}</span></div>`).join("")}`)} style={{ padding:"6px 12px",background:C.accent,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print</button></div></div><div style={SR}><SB label="Gross" val={`₱${rSum.gross.toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`-₱${rExpTotal.toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${rNet.toFixed(0)}`} color={C.warning}/><SB label="Txns" val={rOrders.length} color={C.info}/></div><div style={SEC}>🏆 Top 8 Items</div>{rSum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1,fontSize:12 }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}<div style={SEC}>Order Log</div>{rOrders.length===0?<div style={EM}>Walang orders</div>:rOrders.map(o=>{ const p=PAYMENT_METHODS.find(pm=>pm.key===o.paymentMethod); const canVoid=ROLE_LEVEL[currentUser?.role||"cashier"]>=2; return(<div key={o.id} style={{ background:"white",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${o.voided?C.danger:C.border}`,opacity:o.voided?0.6:1 }}><div style={{ display:"flex",flexWrap:"wrap",fontSize:11,gap:8,alignItems:"center" }}><span style={{ color:C.warning,fontWeight:700 }}>#{o.id}</span><span style={{ color:C.text3 }}>{o.time}</span><span style={{ color:C.info }}>{o.cashier}</span><span style={{ color:C.text3 }}>{o.branch}</span><span style={{ color:p?.color }}>{p?.emoji}</span>{o.discountType&&<span style={{ color:C.warning }}>[{o.discountType}]</span>}<span style={{ color:C.success,fontWeight:700 }}>₱{o.total.toFixed(2)}</span>{o.voided&&<span style={{ background:C.dangerBg,color:C.danger,padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:700 }}>VOIDED</span>}{canVoid&&!o.voided&&(<button onClick={async()=>{ if(!window.confirm(`Void Order #${o.id} — ₱${o.total.toFixed(2)}?\nHindi na mababawi!`))return; const reason=window.prompt("Reason for void:"); if(!reason)return; await sb(`orders?order_num=eq.${o.id}&branch_id=eq.${o.branchId}&order_date=eq.${o.date}`,"PATCH",{is_voided:true,void_reason:reason,voided_by:currentUser?.name}); toast(`Order #${o.id} voided!`); await loadFromSupabase(); }} style={{ padding:"2px 8px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:6,color:C.danger,fontWeight:700,fontSize:10,cursor:"pointer" }}>🚫 Void</button>)}</div><div style={{ marginTop:4,fontSize:10,color:C.text3 }}>{o.items?.map(i=>`${i.name}(${i.size})×${i.qty}`).join(" · ")}</div></div>); })}</div>)}
+          {adminTab==="xreport"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📋 X Reading</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">X READING — ${reportDate}<br>Printed: ${nowFull()}</div></div><div class="dv"></div><div class="row big"><span>Gross</span><span>₱${rSum.gross.toFixed(2)}</span></div><div class="row"><span>Expenses</span><span>-₱${rExpTotal.toFixed(2)}</span></div><div class="row big"><span>NET</span><span>₱${rNet.toFixed(2)}</span></div><div class="row"><span>Txns</span><span>${rOrders.length}</span></div><div class="dv"></div><div class="sec">Top 8 Items</div>${rSum.top8.map(([n,d],i)=>`<div class="row"><span>#${i+1} ${n}</span><span>×${d.qty}=₱${d.sales.toFixed(2)}</span></div>`).join("")}<div class="dv"></div><div class="sec">Orders</div>${rOrders.map(o=>`<div class="row" style="font-size:10px"><span>#${o.id} ${o.time} ${o.cashier}</span><span>₱${o.total.toFixed(2)}</span></div>`).join("")}`)} style={{ padding:"6px 12px",background:C.accent,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print</button></div></div><div style={SR}><SB label="Gross" val={`₱${rSum.gross.toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`-₱${rExpTotal.toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${rNet.toFixed(0)}`} color={C.warning}/><SB label="Txns" val={rOrders.length} color={C.info}/></div><div style={SEC}>🏆 Top 8 Items</div>{rSum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1,fontSize:12 }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}<div style={SEC}>Order Log</div>{rOrders.length===0?<div style={EM}>Walang orders</div>:rOrders.map(o=>{ const p=PAYMENT_METHODS.find(pm=>pm.key===o.paymentMethod); const canVoid=ROLE_LEVEL[currentUser?.role||"cashier"]>=2; return(<div key={o.id} style={{ background:"white",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${o.voided?C.danger:C.border}`,opacity:o.voided?0.6:1 }}><div style={{ display:"flex",flexWrap:"wrap",fontSize:11,gap:8,alignItems:"center" }}><span style={{ color:C.warning,fontWeight:700 }}>#{o.id}</span><span style={{ color:C.text3 }}>{o.time}</span><span style={{ color:C.info }}>{o.cashier}</span><span style={{ color:C.text3 }}>{o.branch}</span><span style={{ color:p?.color }}>{p?.emoji}</span>{o.discountType&&<span style={{ color:C.warning }}>[{o.discountType}]</span>}<span style={{ color:C.success,fontWeight:700 }}>₱{o.total.toFixed(2)}</span>{o.voided&&<span style={{ background:C.dangerBg,color:C.danger,padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:700 }}>VOIDED</span>}{canVoid&&!o.voided&&(<button onClick={async()=>{ if(!window.confirm(`Void Order #${o.id} — ₱${o.total.toFixed(2)}?\nHindi na mababawi!`))return; const reason=window.prompt("Reason for void:"); if(!reason)return; await sb(`orders?order_num=eq.${o.id}&branch_id=eq.${o.branchId}&order_date=eq.${o.date}`,"PATCH",{is_voided:true,void_reason:reason,voided_by:currentUser?.name}); toast(`Order #${o.id} voided!`); auditLog('VOID', `Order #${o.id} voided — Reason: ${reason}`, currentUser, o.branchId, o.branch, o.id); await loadFromSupabase(); }} style={{ padding:"2px 8px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:6,color:C.danger,fontWeight:700,fontSize:10,cursor:"pointer" }}>🚫 Void</button>)}</div><div style={{ marginTop:4,fontSize:10,color:C.text3 }}>{o.items?.map(i=>`${i.name}(${i.size})×${i.qty}`).join(" · ")}</div></div>); })}</div>)}
 
           {adminTab==="zreport"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>🔒 Z Reading — {reportDate}</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Z READING — ${reportDate}<br>Printed: ${nowFull()}</div></div><div class="dv"></div><div class="row big"><span>GROSS</span><span>₱${rSum.gross.toFixed(2)}</span></div><div class="row"><span>EXPENSES</span><span>-₱${rExpTotal.toFixed(2)}</span></div><div class="row big"><span>NET</span><span>₱${rNet.toFixed(2)}</span></div><div class="dv"></div><div class="sec">Top 8 Items</div>${rSum.top8.map(([n,d],i)=>`<div class="row"><span>#${i+1} ${n}</span><span>×${d.qty}=₱${d.sales.toFixed(2)}</span></div>`).join("")}<div class="dv"></div><div class="c big">*** END OF DAY ***</div>`)} style={{ padding:"6px 12px",background:C.accent,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print</button></div></div><div style={SR}><SB label="GROSS" val={`₱${rSum.gross.toFixed(0)}`} color={C.success} big/><SB label="EXPENSES" val={`-₱${rExpTotal.toFixed(0)}`} color={C.danger} big/><SB label="NET" val={`₱${rNet.toFixed(0)}`} color={C.warning} big/></div><div style={SEC}>By Channel</div>{PAYMENT_METHODS.map(p=>{const d=rSum.pmSales[p.key];if(!d?.sales)return null;return(<div key={p.key} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"white",borderRadius:9,marginBottom:6,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><span style={{ fontSize:18 }}>{p.emoji}</span><span style={{ flex:1,fontWeight:700,fontSize:13 }}>{p.label}</span><span style={{ color:C.text3,fontSize:11 }}>{d.count} orders</span><span style={{ color:p.color,fontWeight:900,fontSize:15 }}>₱{d.sales.toFixed(2)}</span></div>);})}<div style={SEC}>🏆 Top 8 Items</div>{rSum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1 }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}</div>)}
 
