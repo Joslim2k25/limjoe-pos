@@ -766,6 +766,10 @@ export default function App() {
   const [payTab, setPayTab] = useState("payment");
   const [cashGiven, setCashGiven] = useState(0);
   const [discountType, setDiscountType] = useState(null);
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [pendingDiscount, setPendingDiscount] = useState(null);
+  const [discountCustomerName, setDiscountCustomerName] = useState("");
+  const [discountCustomerID, setDiscountCustomerID] = useState("");
   const [orderNum, setOrderNum] = useState(1001);
   const [lastReceipt, setLastReceipt] = useState(null);
   const [showQR, setShowQR] = useState(false);
@@ -920,7 +924,7 @@ export default function App() {
     if (!canCharge) { toast("Hindi pa ready!","err"); return; }
     const dk=todayStr(); const bk=`${currentBranch.id}_${dk}`;
     const itemsWithFinal=cart.map(c=>({...c,finalPrice:Math.round(getFinalPrice(c.price)*100)/100}));
-    const order={ id:orderNum, time:nowStr(), date:dk, branch:currentBranch.name, branchId:currentBranch.id, cashier:currentUser.name, paymentMethod, items:itemsWithFinal, subtotal, discountType, discountAmt, total, cash:cashGiven||total, change:paymentMethod==="cash"?Math.max(0,change):0 };
+    const order={ id:orderNum, time:nowStr(), date:dk, branch:currentBranch.name, branchId:currentBranch.id, cashier:currentUser.name, paymentMethod, items:itemsWithFinal, subtotal, discountType, discountAmt, discountCustomerName:(discountType==="SNR"||discountType==="PWD")?discountCustomerName:"", discountCustomerID:(discountType==="SNR"||discountType==="PWD")?discountCustomerID:"", total, cash:cashGiven||total, change:paymentMethod==="cash"?Math.max(0,change):0 };
     const ns={...salesData}; if(!ns[bk])ns[bk]={orders:[]}; ns[bk].orders.push(order);
     setSalesData(ns); await persist(SALES_KEY,ns);
 
@@ -939,7 +943,7 @@ export default function App() {
     } catch(e) { errMsg="Exception: "+e.message; }
     setDebugError(errMsg);
     setLastReceipt(order); setOrderNum(n=>n+1);
-    setCart([]); setCashGiven(0); setDiscountType(null); setPaymentMethod("cash");
+    setCart([]); setCashGiven(0); setDiscountType(null); setPaymentMethod("cash"); setDiscountCustomerName(""); setDiscountCustomerID("");
     setPosScreen("receipt");
     if (savedToCloud) toast(`Order #${order.id} saved! ☁️`);
     else toast(`⚠️ Cloud save FAILED: ${lastSbError||"unknown"}`, "err");
@@ -1007,6 +1011,48 @@ export default function App() {
   const modals = (
     <>
       {showQR&&<QRModal onClose={()=>setShowQR(false)} total={total} paymentMethod={paymentMethod}/>}
+      {showDiscountModal&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16,fontFamily:"sans-serif" }}>
+          <div style={{ background:"white",borderRadius:20,padding:"24px 20px",width:"min(360px,95vw)",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize:28,textAlign:"center",marginBottom:6 }}>{pendingDiscount==="SNR"?"👴":"♿"}</div>
+            <div style={{ fontWeight:900,fontSize:18,textAlign:"center",color:C.success,marginBottom:4 }}>{pendingDiscount==="SNR"?"Senior Citizen":"PWD"} Discount</div>
+            <div style={{ fontSize:12,color:"#64748b",textAlign:"center",marginBottom:20 }}>I-enter ang impormasyon ng customer</div>
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11,color:"#64748b",marginBottom:4,fontWeight:600 }}>Full Name *</div>
+              <input
+                value={discountCustomerName}
+                onChange={e=>setDiscountCustomerName(e.target.value)}
+                placeholder="Juan dela Cruz"
+                style={{ width:"100%",padding:"12px 14px",fontSize:14,borderRadius:10,border:"1.5px solid #e2e8f0",boxSizing:"border-box",outline:"none" }}
+                autoFocus
+              />
+            </div>
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11,color:"#64748b",marginBottom:4,fontWeight:600 }}>{pendingDiscount==="SNR"?"Senior Citizen ID Number":"PWD ID Number"} *</div>
+              <input
+                value={discountCustomerID}
+                onChange={e=>setDiscountCustomerID(e.target.value)}
+                placeholder="ID Number"
+                style={{ width:"100%",padding:"12px 14px",fontSize:14,borderRadius:10,border:"1.5px solid #e2e8f0",boxSizing:"border-box",outline:"none" }}
+              />
+            </div>
+            <div style={{ background:"#f0fdf4",borderRadius:10,padding:"10px 14px",marginBottom:20,fontSize:12,color:"#166534" }}>
+              📋 Sisiguruhin na may valid ID ang customer bago mag-apply ng discount.
+            </div>
+            <div style={{ display:"flex",gap:8 }}>
+              <button onClick={()=>{setShowDiscountModal(false);setPendingDiscount(null);}} style={{ flex:1,padding:"12px",background:"#f1f5f9",border:"none",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer" }}>Cancel</button>
+              <button onClick={()=>{
+                if(!discountCustomerName.trim()||!discountCustomerID.trim()){toast("I-fill ang Name at ID Number!","err");return;}
+                setDiscountType(pendingDiscount);
+                setShowDiscountModal(false);
+                toast(`${pendingDiscount} discount applied — ${discountCustomerName}`);
+              }} style={{ flex:2,padding:"12px",background:C.success,border:"none",borderRadius:10,color:"white",fontWeight:900,fontSize:14,cursor:"pointer" }}>
+                ✅ Apply Discount
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showExportModal&&(
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16 }} onClick={e=>e.target===e.currentTarget&&setShowExportModal(false)}>
           <div style={{ background:"white",borderRadius:20,padding:24,width:"min(380px,95vw)",fontFamily:"sans-serif" }}>
@@ -1329,7 +1375,14 @@ export default function App() {
                 </div>
               )}
             </div>)}
-            {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>setDiscountType(null)} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>{discountType==="SNR"||discountType==="PWD"?`Gross ÷ 1.12 × 80% | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}</div>}</div>)}
+            {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setShowDiscountModal(true);} }} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>setDiscountType(null)} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>
+                  {discountType==="SNR"||discountType==="PWD"?`Gross ÷ 1.12 × 80% | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}
+                  {(discountType==="SNR"||discountType==="PWD")&&discountCustomerName&&(
+                    <div style={{ marginTop:4,background:C.successBg,borderRadius:6,padding:"4px 8px",color:C.success,fontWeight:700 }}>
+                      👤 {discountCustomerName} | ID: {discountCustomerID}
+                    </div>
+                  )}
+                </div>}</div>)}
             {payTab==="expense"&&(<div style={{ padding:"8px 12px" }}>
               <select value={expCategory} onChange={e=>setExpCategory(e.target.value)} style={{ width:"100%",marginBottom:5,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}>
                 <option>Cost of Products/Ingredients</option>
