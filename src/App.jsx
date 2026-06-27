@@ -500,6 +500,90 @@ function InventoryModal({ onClose, toast }) {
     setLoading(false);
   }
 
+  function exportToExcel(fromDate, toDate, branchId) {
+    const allDates = [];
+    const d = new Date(fromDate);
+    const end = new Date(toDate);
+    while (d <= end) {
+      allDates.push(d.toISOString().slice(0,10));
+      d.setDate(d.getDate()+1);
+    }
+    const branches = branchId ? [BRANCHES.find(b=>b.id===branchId)] : BRANCHES;
+    const rows = [];
+    branches.forEach(branch => {
+      allDates.forEach(dk => {
+        const ords = getOrders(dk, branch.id);
+        if (ords.length === 0) return;
+        const gross = ords.reduce((s,o)=>s+o.total, 0);
+        const gcash = ords.filter(o=>o.paymentMethod==="gcash").reduce((s,o)=>s+o.total, 0);
+        const maya = ords.filter(o=>o.paymentMethod==="maya").reduce((s,o)=>s+o.total, 0);
+        const gotyme = ords.filter(o=>o.paymentMethod==="gotyme").reduce((s,o)=>s+o.total, 0);
+        const grabfood = ords.filter(o=>o.paymentMethod==="grabfood").reduce((s,o)=>s+o.total, 0);
+        const foodpanda = ords.filter(o=>o.paymentMethod==="foodpanda").reduce((s,o)=>s+o.total, 0);
+        const sm = ords.filter(o=>o.paymentMethod==="sm").reduce((s,o)=>s+o.total, 0);
+        const discount = ords.reduce((s,o)=>s+(o.discountAmt||0), 0);
+        const expsRaw = getExps(dk, branch.id);
+        const expenses = expsRaw.reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expCOS = expsRaw.filter(e=>e.category==="Cost of Products/Ingredients").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expShipping = expsRaw.filter(e=>e.category==="Shipping Fee").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expOffice = expsRaw.filter(e=>e.category==="Office Supplies").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expMisc = expsRaw.filter(e=>e.category==="Miscellaneous").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const net = gross - gcash - maya - gotyme - grabfood - foodpanda - sm - discount - expenses;
+        const cohKey = `${branch.id}_${dk}`;
+        const coh = cashOnHand[cohKey] ?? "";
+        rows.push({
+          "Date": dk,
+          "Branch": branch.name,
+          "Transactions": ords.length,
+          "Gross Sales": gross,
+          "GCash": gcash,
+          "Maya": maya,
+          "GoTyme": gotyme,
+          "GrabFood": grabfood,
+          "FoodPanda": foodpanda,
+          "SM Online": sm,
+          "Discount": discount,
+          "Exp - Cost of Products": expCOS,
+          "Exp - Shipping Fee": expShipping,
+          "Exp - Office Supplies": expOffice,
+          "Exp - Miscellaneous": expMisc,
+          "Total Expenses": expenses,
+          "NET SALES": net,
+          "Cash on Hand": coh,
+          "Status": coh !== "" ? (Math.abs(parseFloat(coh)-net)<1?"MATCHED":parseFloat(coh)>net?"OVER":"SHORT") : ""
+        });
+      });
+    });
+
+    // Add totals row
+    if (rows.length > 0) {
+      const totals = { "Date": "TOTAL", "Branch": "", "Transactions": rows.reduce((s,r)=>s+r["Transactions"],0) };
+      ["Gross Sales","GCash","Maya","GoTyme","GrabFood","FoodPanda","SM Online","Discount","Exp - Cost of Products","Exp - Shipping Fee","Exp - Office Supplies","Exp - Miscellaneous","Total Expenses","NET SALES"].forEach(k => {
+        totals[k] = rows.reduce((s,r)=>s+(r[k]||0), 0);
+      });
+      totals["Cash on Hand"] = "";
+      totals["Status"] = "";
+      rows.push(totals);
+    }
+
+    if (rows.length === 0) { toast("Walang data sa selected dates!", "err"); return; }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
+
+    // Style header row width
+    ws["!cols"] = [
+      {wch:12},{wch:12},{wch:12},{wch:13},{wch:10},{wch:10},{wch:10},{wch:11},{wch:11},{wch:11},{wch:10},
+      {wch:20},{wch:18},{wch:18},{wch:16},{wch:14},{wch:12},{wch:13},{wch:10}
+    ];
+
+    const filename = `Limjoe_SalesReport_${fromDate}_to_${toDate}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    toast(`✅ Downloaded: ${filename}`);
+    setShowExportModal(false);
+  }
+
   async function addMaterial() {
     if (!newMat.name.trim()) { toast("Lagyan ng material name!", "err"); return; }
     if (!newMat.stock_qty) { toast("Lagyan ng stock qty!", "err"); return; }
@@ -709,6 +793,9 @@ export default function App() {
   const [showAddEmp, setShowAddEmp] = useState(false);
   const [cashOnHand, setCashOnHand] = useState({});
   const [cohInput, setCohInput] = useState({});
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
   const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); d.setDate(10); return d.toISOString().split("T")[0]; });
   const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
   const [depositLoading, setDepositLoading] = useState(false);
@@ -920,6 +1007,39 @@ export default function App() {
   const modals = (
     <>
       {showQR&&<QRModal onClose={()=>setShowQR(false)} total={total} paymentMethod={paymentMethod}/>}
+      {showExportModal&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16 }} onClick={e=>e.target===e.currentTarget&&setShowExportModal(false)}>
+          <div style={{ background:"white",borderRadius:20,padding:24,width:"min(380px,95vw)",fontFamily:"sans-serif" }}>
+            <div style={{ fontWeight:900,fontSize:18,marginBottom:4 }}>📊 Download Sales Report</div>
+            <div style={{ fontSize:12,color:"#64748b",marginBottom:20 }}>I-select ang date range at branch</div>
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11,color:"#64748b",marginBottom:4 }}>From Date</div>
+              <input type="date" value={exportFrom} onChange={e=>setExportFrom(e.target.value)} style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,boxSizing:"border-box" }}/>
+            </div>
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11,color:"#64748b",marginBottom:4 }}>To Date</div>
+              <input type="date" value={exportTo} onChange={e=>setExportTo(e.target.value)} style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,boxSizing:"border-box" }}/>
+            </div>
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11,color:"#64748b",marginBottom:4 }}>Branch</div>
+              <select value={bFilter??""} onChange={e=>setBFilter(e.target.value===""?null:parseInt(e.target.value))} style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:13,boxSizing:"border-box" }}>
+                <option value="">All Branches</option>
+                {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"flex",gap:8 }}>
+              <button onClick={()=>setShowExportModal(false)} style={{ flex:1,padding:"12px",background:"#f1f5f9",border:"none",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer" }}>Cancel</button>
+              <button onClick={()=>{
+                if(!exportFrom||!exportTo){toast("Piliin ang From at To date!","err");return;}
+                if(exportFrom>exportTo){toast("From date dapat mas maaga sa To date!","err");return;}
+                exportToExcel(exportFrom,exportTo,bFilter);
+              }} style={{ flex:2,padding:"12px",background:"#16a34a",border:"none",borderRadius:10,color:"white",fontWeight:900,fontSize:14,cursor:"pointer" }}>
+                📥 Download Excel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
       {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast}/>}
@@ -1360,7 +1480,7 @@ export default function App() {
 
           {adminTab==="zreport"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>🔒 Z Reading — {reportDate}</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Z READING — ${reportDate}<br>Printed: ${nowFull()}</div></div><div class="dv"></div><div class="row big"><span>GROSS</span><span>₱${rSum.gross.toFixed(2)}</span></div><div class="row"><span>EXPENSES</span><span>-₱${rExpTotal.toFixed(2)}</span></div><div class="row big"><span>NET</span><span>₱${rNet.toFixed(2)}</span></div><div class="dv"></div><div class="sec">Top 8 Items</div>${rSum.top8.map(([n,d],i)=>`<div class="row"><span>#${i+1} ${n}</span><span>×${d.qty}=₱${d.sales.toFixed(2)}</span></div>`).join("")}<div class="dv"></div><div class="c big">*** END OF DAY ***</div>`)} style={{ padding:"6px 12px",background:C.accent,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print</button></div></div><div style={SR}><SB label="GROSS" val={`₱${rSum.gross.toFixed(0)}`} color={C.success} big/><SB label="EXPENSES" val={`-₱${rExpTotal.toFixed(0)}`} color={C.danger} big/><SB label="NET" val={`₱${rNet.toFixed(0)}`} color={C.warning} big/></div><div style={SEC}>By Channel</div>{PAYMENT_METHODS.map(p=>{const d=rSum.pmSales[p.key];if(!d?.sales)return null;return(<div key={p.key} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"white",borderRadius:9,marginBottom:6,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><span style={{ fontSize:18 }}>{p.emoji}</span><span style={{ flex:1,fontWeight:700,fontSize:13 }}>{p.label}</span><span style={{ color:C.text3,fontSize:11 }}>{d.count} orders</span><span style={{ color:p.color,fontWeight:900,fontSize:15 }}>₱{d.sales.toFixed(2)}</span></div>);})}<div style={SEC}>🏆 Top 8 Items</div>{rSum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1 }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}</div>)}
 
-          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8 }}><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:(
+          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8 }}><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>{ const [y,m]=reportMonth.split("-"); const from=`${y}-${m}-01`; const lastDay=new Date(parseInt(y),parseInt(m),0).getDate(); const to=`${y}-${m}-${String(lastDay).padStart(2,"0")}`; setExportFrom(from); setExportTo(to); setShowExportModal(true); }} style={{ padding:"6px 14px",background:"#16a34a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>📥 Download Excel</button></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:(
   <div style={{ overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
     <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800 }}>
       <thead>
