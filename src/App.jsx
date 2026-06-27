@@ -686,6 +686,9 @@ export default function App() {
   const [lastReceipt, setLastReceipt] = useState(null);
   const [showQR, setShowQR] = useState(false);
   const [expDesc, setExpDesc] = useState("");
+  const [cashierCohInput, setCashierCohInput] = useState("");
+  const [cashierCohResult, setCashierCohResult] = useState(null);
+  const [cashierCohSubmitted, setCashierCohSubmitted] = useState(false);
   const [expAmt, setExpAmt] = useState("");
   const [expCategory, setExpCategory] = useState("Cost of Products/Ingredients");
   const [debugError, setDebugError] = useState(null);
@@ -1023,6 +1026,76 @@ export default function App() {
           <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:8 }}>📋 X READING — {currentBranch.name}</div>
           {branchSum.top8.length===0?<div style={{ color:C.text3,fontSize:12,textAlign:"center",padding:"10px 0" }}>Wala pang sales</div>:branchSum.top8.map(([n,d],i)=>(<div key={n} style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${C.border}` }}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:700 }}>#{i+1}</span><span style={{ flex:1,marginLeft:8,color:C.text }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700,marginLeft:8 }}>₱{d.sales.toFixed(0)}</span></div>))}
         </div>
+
+        {/* CASH ON HAND SUBMIT */}
+        {(()=>{
+          const todayOrders = getOrders(todayStr(), currentBranch.id);
+          const nonCash = todayOrders.reduce((s,o)=>["gcash","maya","gotyme","grabfood","foodpanda","sm"].includes(o.paymentMethod)?s+o.total:s, 0);
+          const discounts = todayOrders.reduce((s,o)=>s+(o.discountAmt||0), 0);
+          const exps = getExps(todayStr(), currentBranch.id).reduce((s,e)=>s+parseFloat(e.amount), 0);
+          const todayNet = branchSum.gross - nonCash - discounts - exps;
+          const existing = cashOnHand[`${currentBranch.id}_${todayStr()}`];
+          const cohColor = cashierCohResult?(cashierCohResult.status==="MATCHED"?C.success:cashierCohResult.status==="OVER"?C.info:C.danger):C.border;
+          return (
+            <div style={{ background:"white",borderRadius:14,padding:14,border:`2px solid ${cohColor}`,boxShadow:C.shadow,marginTop:4 }}>
+              <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:10 }}>💰 CASH ON HAND — End of Shift</div>
+              {existing&&!cashierCohResult&&(
+                <div style={{ background:C.bg3,borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:11,color:C.text3 }}>
+                  Nasubmit na ngayong araw: <strong style={{ color:C.warning }}>₱{parseFloat(existing).toFixed(2)}</strong>
+                </div>
+              )}
+              {!cashierCohResult?(
+                <>
+                  <div style={{ fontSize:12,color:C.text2,marginBottom:10 }}>Ibilang ang cash sa drawer at i-enter ang total:</div>
+                  <input
+                    type="number"
+                    value={cashierCohInput}
+                    onChange={e=>setCashierCohInput(e.target.value)}
+                    placeholder="₱ 0.00"
+                    style={{ width:"100%",padding:"14px",fontSize:22,fontWeight:900,borderRadius:10,border:`2px solid ${C.border}`,color:C.warning,outline:"none",textAlign:"center",boxSizing:"border-box",marginBottom:10 }}
+                  />
+                  <button
+                    onClick={async()=>{
+                      const amt=parseFloat(cashierCohInput);
+                      if(isNaN(amt)||amt<0){toast("Lagay ng valid amount!","err");return;}
+                      if(!window.confirm(`I-submit ang Cash on Hand: ₱${amt.toFixed(2)}?\n\nHindi na ito mababago.`))return;
+                      await saveCashOnHand(currentBranch.id,todayStr(),amt);
+                      const diff=Math.round((amt-todayNet)*100)/100;
+                      const status=Math.abs(diff)<1?"MATCHED":diff>0?"OVER":"SHORT";
+                      setCashierCohResult({amount:amt,net:todayNet,diff,status});
+                    }}
+                    disabled={!cashierCohInput}
+                    style={{ width:"100%",padding:"14px",background:cashierCohInput?C.primary:C.bg3,border:"none",borderRadius:10,color:cashierCohInput?"white":C.text3,fontWeight:900,fontSize:15,cursor:cashierCohInput?"pointer":"not-allowed" }}
+                  >Submit Cash on Hand →</button>
+                </>
+              ):(
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:52,marginBottom:6 }}>{cashierCohResult.status==="MATCHED"?"✅":cashierCohResult.status==="OVER"?"📈":"⚠️"}</div>
+                  <div style={{ fontSize:24,fontWeight:900,color:cashierCohResult.status==="MATCHED"?C.success:cashierCohResult.status==="OVER"?C.info:C.danger,marginBottom:14 }}>
+                    {cashierCohResult.status==="MATCHED"?"MATCHED!":cashierCohResult.status==="OVER"?"OVER!":"SHORT!"}
+                  </div>
+                  <div style={{ background:C.bg3,borderRadius:12,padding:"12px 16px",marginBottom:10,textAlign:"left" }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:`1px solid ${C.border}` }}>
+                      <span style={{ color:C.text3 }}>Expected (Net Sales)</span>
+                      <span style={{ fontWeight:700 }}>₱{cashierCohResult.net.toFixed(2)}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:`1px solid ${C.border}` }}>
+                      <span style={{ color:C.text3 }}>Cash Submitted</span>
+                      <span style={{ fontWeight:700,color:C.warning }}>₱{cashierCohResult.amount.toFixed(2)}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",fontSize:16,padding:"8px 0",fontWeight:900 }}>
+                      <span>{cashierCohResult.status==="OVER"?"Sobra (OVER)":cashierCohResult.status==="SHORT"?"Kulang (SHORT)":"Tama!"}</span>
+                      <span style={{ color:cashierCohResult.status==="MATCHED"?C.success:cashierCohResult.status==="OVER"?C.info:C.danger }}>
+                        {cashierCohResult.diff>=0?"+":""}₱{cashierCohResult.diff.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:11,color:C.text3 }}>✅ Naipadala na sa Admin. Salamat! 🍋</div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     );
 
