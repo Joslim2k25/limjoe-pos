@@ -119,12 +119,12 @@ const formatHrs = (mins) => `${Math.floor(mins/60)}h ${mins%60}m`;
 const SALES_KEY = "limjoe-sales-v11"; const DTR_KEY = "limjoe-dtr-v11"; const EXP_KEY = "limjoe-exp-v11";
 
 const C = {
-  bg:"#f8fafc",bg2:"#ffffff",bg3:"#f1f5f9",border:"#e2e8f0",border2:"#cbd5e1",
-  text:"#0f172a",text2:"#334155",text3:"#64748b",
-  primary:"#16a34a",primaryDark:"#15803d",accent:"#7c3aed",
-  danger:"#dc2626",dangerBg:"#fef2f2",warning:"#d97706",warningBg:"#fffbeb",
+  bg:"#fffdf5",bg2:"#ffffff",bg3:"#fef9e7",border:"#fde68a",border2:"#fcd34d",
+  text:"#1c1917",text2:"#44403c",text3:"#78716c",
+  primary:"#eab308",primaryDark:"#ca8a04",accent:"#16a34a",
+  danger:"#dc2626",dangerBg:"#fef2f2",warning:"#ea580c",warningBg:"#fff7ed",
   info:"#2563eb",infoBg:"#eff6ff",success:"#16a34a",successBg:"#f0fdf4",
-  card:"#ffffff",shadow:"0 1px 3px rgba(0,0,0,0.1)",
+  card:"#ffffff",shadow:"0 2px 8px rgba(234,179,8,0.12)",
 };
 
 const printWin = (html) => {
