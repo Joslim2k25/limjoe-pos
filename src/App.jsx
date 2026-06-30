@@ -821,6 +821,10 @@ export default function App() {
   // POS products from Supabase (dynamic)
   const [dbProducts, setDbProducts] = useState([]);
   const [dbCategories, setDbCategories] = useState(DEFAULT_CATEGORIES);
+  const [holidays, setHolidays] = useState([]);
+  const [newHolDate, setNewHolDate] = useState("");
+  const [newHolName, setNewHolName] = useState("");
+  const [newHolType, setNewHolType] = useState("regular");
 
   // Modals
   const [showBulkUpload, setShowBulkUpload] = useState(false);
@@ -887,6 +891,8 @@ export default function App() {
   const [manualPayrollEmp, setManualPayrollEmp] = useState("");
   const [manualPayrollDays, setManualPayrollDays] = useState("");
   const [manualPayrollOT, setManualPayrollOT] = useState("");
+  const [manualPayrollUndertime, setManualPayrollUndertime] = useState("");
+  const [manualPayrollHoliday, setManualPayrollHoliday] = useState("");
   const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
   const [depositLoading, setDepositLoading] = useState(false);
 
@@ -928,14 +934,16 @@ export default function App() {
   // ── LOAD SUPABASE DATA ────────────────────────────────────────────────────
   const loadFromSupabase = async () => {
     try {
-      const [orders, items, exps, dtrRows, emps, cohRows] = await Promise.all([
+      const [orders, items, exps, dtrRows, emps, cohRows, holRows] = await Promise.all([
         sb("orders?select=*&order=order_date.desc,order_time.desc"),
         sb("order_items?select=*"),
         sb("expenses?select=*&order=expense_date.desc"),
         sb("dtr?select=*&order=dtr_date.desc,id.asc"),
         sb("employees?select=*&order=id.asc"),
         sb("cash_on_hand?select=*"),
+        sb("holidays?select=*&order=date.asc"),
       ]);
+      if (Array.isArray(holRows)) setHolidays(holRows.map(h=>({ id:h.id, date:h.date, name:h.name, type:h.type })));
       if (Array.isArray(emps) && emps.length > 0) {
         setEmployees(emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active));
       } else {
@@ -1561,8 +1569,10 @@ export default function App() {
     const todayOrders=getOrders(todayStr(),bFilter); const todaySum=calcSum(todayOrders); const todayExp=getExps(todayStr(),bFilter).reduce((s,e)=>s+parseFloat(e.amount),0);
     const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{
-      let totalMins=0,workDays=0,otMins=0;
+      let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0;
       const start=new Date(payrollFrom),end=new Date(payrollTo);
+      const dailyRate=getDailyRate(emp);
+      const hourlyRate=dailyRate/8; // Daily Rate ÷ 8 = hourly rate, used for undertime deduction
       for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
         const dk=d.toISOString().split("T")[0];
         let dayMins=0;
@@ -1570,21 +1580,28 @@ export default function App() {
         if(dayMins>0){
           workDays++;totalMins+=dayMins;
           if(dayMins>480)otMins+=(dayMins-480); // beyond 8 hrs/day counts as OT
+          if(dayMins<480)undertimeMins+=(480-dayMins); // below 8 hrs/day counts as undertime
+          const hol=holidays.find(h=>h.date===dk);
+          if(hol){
+            holidayPay += hol.type==="regular" ? DEFAULT_DAILY_RATE : dailyRate*0.30;
+          }
         }
       }
-      const dailyRate=getDailyRate(emp);
       const otRate=getOTRate(emp);
       const otHours=Math.round((otMins/60)*100)/100;
+      const undertimeHours=Math.round((undertimeMins/60)*100)/100;
       const basicPay=workDays*dailyRate;
       const otPay=Math.round(otHours*otRate*100)/100;
-      const grossPay=basicPay+otPay;
+      const undertimeDed=Math.round(undertimeHours*hourlyRate*100)/100;
+      const grossPay=basicPay+otPay+holidayPay-undertimeDed;
       const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
-      const totalDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
-      const netPay=grossPay-totalDed;
-      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,otHours,basicPay,otPay,grossPay,totalDed,netPay};
+      const statDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+      const totalDed=statDed+undertimeDed;
+      const netPay=grossPay-statDed; // undertime already subtracted from grossPay above
+      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
     });
 
-    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
+    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
 
     return (
       <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden",color:C.text }}>
@@ -1832,22 +1849,34 @@ export default function App() {
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>OT HOURS</div>
                   <input type="number" min="0" step="0.5" value={manualPayrollOT} onChange={e=>setManualPayrollOT(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
+                <div style={{ width:100 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>UNDERTIME HRS</div>
+                  <input type="number" min="0" step="0.5" value={manualPayrollUndertime} onChange={e=>setManualPayrollUndertime(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
+                <div style={{ width:110 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>HOLIDAY PAY (₱)</div>
+                  <input type="number" min="0" value={manualPayrollHoliday} onChange={e=>setManualPayrollHoliday(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
                 <button onClick={()=>{
                   const emp=employees.find(e=>String(e.id)===String(manualPayrollEmp));
                   const days=parseFloat(manualPayrollDays)||0;
                   const otHrs=parseFloat(manualPayrollOT)||0;
+                  const underHrs=parseFloat(manualPayrollUndertime)||0;
+                  const holPay=parseFloat(manualPayrollHoliday)||0;
                   if(!emp){toast("Pumili ng employee!","err");return;}
                   if(days<=0){toast("Ilagay ang days worked!","err");return;}
                   const dailyRate=getDailyRate(emp);
                   const otRate=getOTRate(emp);
+                  const hourlyRate=dailyRate/8;
                   const basicPay=days*dailyRate;
                   const otPay=Math.round(otHrs*otRate*100)/100;
-                  const grossPay=basicPay+otPay;
+                  const undertimeDed=Math.round(underHrs*hourlyRate*100)/100;
+                  const grossPay=basicPay+otPay+holPay-undertimeDed;
                   const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
                   const totalDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
                   const netPay=grossPay-totalDed;
-                  printWin(`<div class="c"><div class="brand">FOOD LAND</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
-                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");
+                  printWin(`<div class="c"><div class="brand">FOOD LAND</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}${undertimeDed>0?`<div class="row"><span>Undertime (${underHrs} hrs)</span><span>-₱${undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
+                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
             </div>
@@ -1860,15 +1889,63 @@ export default function App() {
                 </div>
                 <div style={{ textAlign:"center",minWidth:60 }}><div style={{ fontWeight:900,fontSize:16,color:C.info }}>{emp.workDays}</div><div style={{ fontSize:9,color:C.text3 }}>Days</div></div>
                 <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.otHours>0?C.warning:C.text3 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>OT Hrs</div></div>
+                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.undertimeHours>0?C.danger:C.text3 }}>{emp.undertimeHours>0?`${emp.undertimeHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Undertime</div></div>
                 <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.text }}>₱{emp.basicPay.toFixed(0)}</div><div style={{ fontSize:9,color:C.text3 }}>Basic</div></div>
-                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed}`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Deductions</div></div>
+                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(0)}`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Deductions</div></div>
                 <div style={{ textAlign:"center",minWidth:90 }}><div style={{ fontWeight:900,fontSize:18,color:C.success }}>₱{emp.netPay.toFixed(2)}</div><div style={{ fontSize:9,color:C.text3 }}>NET PAY</div></div>
-                <button onClick={()=>printWin(`<div class="c"><div class="brand">FOOD LAND</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.totalDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
+                <button onClick={()=>printWin(`<div class="c"><div class="brand">FOOD LAND</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
               </div>
             </div>))}
             {payrollRows.length===0&&<div style={EM}>Walang employees</div>}
           </div>)}
 
+          {adminTab==="holidays"&&(<div>
+            <div style={PT}>🎌 Holiday Management</div>
+            <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",margin:"10px 0 14px",fontSize:11,color:C.text2 }}>
+              <b>Regular Holiday:</b> flat ₱{DEFAULT_DAILY_RATE} extra pay (kahit ano ang Daily Rate ng employee) &nbsp;|&nbsp; <b>Special Holiday:</b> +30% ng sariling Daily Rate ng employee
+            </div>
+            <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:16,boxShadow:C.shadow }}>
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end" }}>
+                <div style={{ flex:1,minWidth:140 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>DATE</div>
+                  <input type="date" value={newHolDate} onChange={e=>setNewHolDate(e.target.value)} style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
+                <div style={{ flex:2,minWidth:160 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>HOLIDAY NAME</div>
+                  <input value={newHolName} onChange={e=>setNewHolName(e.target.value)} placeholder="e.g. Araw ng Kagitingan" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
+                <div style={{ display:"flex",gap:6 }}>
+                  <button onClick={()=>setNewHolType("regular")} style={{ padding:"9px 14px",background:newHolType==="regular"?C.primary:"white",border:`1.5px solid ${newHolType==="regular"?C.primary:C.border}`,borderRadius:8,color:newHolType==="regular"?"white":C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>Regular Holiday</button>
+                  <button onClick={()=>setNewHolType("special")} style={{ padding:"9px 14px",background:newHolType==="special"?C.warning:"white",border:`1.5px solid ${newHolType==="special"?C.warning:C.border}`,borderRadius:8,color:newHolType==="special"?"white":C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>Special Holiday</button>
+                </div>
+                <button onClick={async()=>{
+                  if(!newHolDate){toast("Pumili ng petsa!","err");return;}
+                  if(!newHolName.trim()){toast("Ilagay ang pangalan ng holiday!","err");return;}
+                  const rec={date:newHolDate,name:newHolName.trim(),type:newHolType};
+                  const result=await sb("holidays","POST",rec);
+                  if(result&&result[0]){
+                    setHolidays(prev=>[...prev,{id:result[0].id,...rec}].sort((a,b)=>a.date.localeCompare(b.date)));
+                    toast(`✅ ${rec.name} added!`);
+                    setNewHolDate("");setNewHolName("");setNewHolType("regular");
+                  } else toast("Error saving holiday.","err");
+                }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer" }}>+ Add</button>
+              </div>
+            </div>
+            {holidays.length===0?<div style={EM}>Walang holidays na naka-set</div>:holidays.map(h=>(
+              <div key={h.id} style={{ display:"flex",alignItems:"center",gap:10,background:"white",borderRadius:10,padding:"10px 14px",marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                <span style={{ fontSize:11,fontWeight:800,padding:"3px 8px",borderRadius:6,background:h.type==="regular"?C.primary:C.warning,color:"white" }}>{h.type==="regular"?"REGULAR":"SPECIAL"}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:13,color:C.text }}>{h.name}</div>
+                  <div style={{ fontSize:11,color:C.text3 }}>{h.date}</div>
+                </div>
+                <button onClick={async()=>{
+                  await sb(`holidays?id=eq.${h.id}`,"DELETE");
+                  setHolidays(prev=>prev.filter(x=>x.id!==h.id));
+                  toast("Holiday removed.");
+                }} style={{ padding:"6px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>🗑️ Remove</button>
+              </div>
+            ))}
+          </div>)}
           {adminTab==="employees"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={PT}>👥 Employee Management</div><button onClick={()=>setShowAddEmp(s=>!s)} style={{ padding:"8px 16px",background:showAddEmp?C.bg3:C.primary,border:`1px solid ${showAddEmp?C.border:C.primary}`,borderRadius:8,color:showAddEmp?C.text2:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddEmp?"✕ Cancel":"+ Add Employee"}</button></div>{showAddEmp&&(<div style={{ background:"white",borderRadius:12,padding:"16px",marginBottom:16,border:`2px solid ${C.primary}33`,boxShadow:C.shadow }}><div style={{ display:"flex",gap:8,marginBottom:8,flexWrap:"wrap" }}><input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="Pangalan" style={{ flex:2,minWidth:140,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}/><input value={newEmpPin} onChange={e=>setNewEmpPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="4-digit PIN" maxLength={4} style={{ flex:1,minWidth:100,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none",fontFamily:"monospace",letterSpacing:2 }}/></div><div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}><select value={newEmpRole} onChange={e=>setNewEmpRole(e.target.value)} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select>{newEmpRole!=="admin"&&(<select value={newEmpBranch} onChange={e=>setNewEmpBranch(parseInt(e.target.value))} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>)}</div><button onClick={createEmployee} style={{ width:"100%",padding:"11px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:13,cursor:"pointer" }}>Save Employee</button></div>)}{employees.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:24 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:C.text3 }}><span style={{ color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</span>{emp.branchId?` · ${BRANCHES.find(b=>b.id===emp.branchId)?.name}`:" · All Branches"}</div></div><div style={{ background:C.bg3,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:18,fontWeight:900,color:C.warning,letterSpacing:4,border:`1px solid ${C.border}` }}>{emp.pin}</div>{emp.id!==currentUser?.id&&(<button onClick={()=>deactivateEmployee(emp)} style={{ padding:"7px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Deactivate</button>)}</div></div>))}</div>)}
 
         </div>
