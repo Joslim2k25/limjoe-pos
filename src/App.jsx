@@ -36,7 +36,7 @@ const auditLog = async (action_type, action_detail, user, branch_id=null, branch
 
 // ─── LOYALTY PROGRAM (self-service, no cashier point entry) ──────────────────
 const LOYALTY_REBATE_RATE = 0.025;
-const LOYALTY_SIGNUP_URL = "https://limjoe-pos.vercel.app/loyalty";
+const LOYALTY_SIGNUP_URL = "https://limjoe-pos.vercel.app/loyalty.html";
 
 // Looks up a loyalty customer by phone (read-only check; cashier can't edit balances here)
 const lookupLoyaltyCustomer = async (phone) => {
@@ -163,6 +163,25 @@ function QRModal({ onClose, total, paymentMethod }) {
         <button onClick={onClose} style={{ width:"100%",padding:"14px",background:pm?.color||"#16a34a",border:"none",borderRadius:12,color:"white",fontWeight:900,fontSize:16,cursor:"pointer" }}>
           ✅ Bayad Na — Close
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOYALTY QR MODAL ──────────────────────────────────────────────────────
+function LoyaltyQRModal({ onClose }) {
+  const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(LOYALTY_SIGNUP_URL)}`;
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16,fontFamily:"sans-serif" }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:20,padding:"24px 20px",width:"min(360px,95vw)",textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize:32,marginBottom:4 }}>🎉</div>
+        <div style={{ fontWeight:900,fontSize:20,color:C.primary,marginBottom:2 }}>Limjoe Loyalty Program</div>
+        <div style={{ fontSize:13,color:"#64748b",marginBottom:16 }}>I-scan para mag-sign up o mag-check ng points. Self-service, walang kailangang gawin ang cashier.</div>
+        <div style={{ background:"#f8fafc",borderRadius:16,padding:16,marginBottom:16,border:"2px solid #e2e8f0" }}>
+          <img src={qrImgUrl} alt="Loyalty QR Code" style={{ width:"100%",maxWidth:240,borderRadius:8,display:"block",margin:"0 auto" }}/>
+        </div>
+        <div style={{ fontSize:11,color:"#94a3b8",marginBottom:16,wordBreak:"break-all" }}>{LOYALTY_SIGNUP_URL}</div>
+        <button onClick={onClose} style={{ width:"100%",padding:"14px",background:C.primary,border:"none",borderRadius:12,color:"white",fontWeight:900,fontSize:16,cursor:"pointer" }}>Close</button>
       </div>
     </div>
   );
@@ -993,8 +1012,13 @@ export default function App() {
       } else errMsg="orders insert failed: "+lastSbError;
     } catch(e) { errMsg="Exception: "+e.message; }
     setDebugError(errMsg);
+    // Loyalty: credit rebate using ONLY the computed order total — never a typed-in amount.
+    if (loyaltyCustomer) {
+      creditLoyaltyRebate(loyaltyCustomer, total, orderNum, currentBranch.name);
+    }
     setLastReceipt(order); setOrderNum(n=>n+1);
     setCart([]); setCashGiven(0); setDiscountType(null); setPaymentMethod("cash"); setDiscountCustomerName(""); setDiscountCustomerID("");
+    setLoyaltyPhone(""); setLoyaltyCustomer(null);
     setPosScreen("receipt");
     if (savedToCloud) toast(`Order #${order.id} saved! ☁️`);
     else toast(`⚠️ Cloud save FAILED: ${lastSbError||"unknown"}`, "err");
@@ -1070,6 +1094,7 @@ export default function App() {
   const modals = (
     <>
       {showQR&&<QRModal onClose={()=>setShowQR(false)} total={total} paymentMethod={paymentMethod}/>}
+      {showLoyaltyQR&&<LoyaltyQRModal onClose={()=>setShowLoyaltyQR(false)}/>}
       {showDiscountModal&&(
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16,fontFamily:"sans-serif" }}>
           <div style={{ background:"white",borderRadius:20,padding:"24px 20px",width:"min(360px,95vw)",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
@@ -1409,7 +1434,7 @@ export default function App() {
 
           <div style={{ background:"white",borderTop:`2px solid ${C.border}`,flexShrink:0 }}>
             <div style={{ display:"flex",borderBottom:`1px solid ${C.border}` }}>
-              {[{key:"payment",label:"Payment"},{key:"discount",label:"Discount"},{key:"expense",label:"Expenses"}].map(t=>(<button key={t.key} onClick={()=>setPayTab(t.key)} style={{ flex:1,padding:"9px",border:"none",background:"transparent",color:payTab===t.key?C.primary:C.text3,fontWeight:payTab===t.key?800:600,fontSize:11,cursor:"pointer",borderBottom:payTab===t.key?`2px solid ${C.primary}`:"2px solid transparent" }}>{t.label}</button>))}
+              {[{key:"payment",label:"Payment"},{key:"discount",label:"Discount"},{key:"loyalty",label:"🎉 Loyalty"},{key:"expense",label:"Expenses"}].map(t=>(<button key={t.key} onClick={()=>setPayTab(t.key)} style={{ flex:1,padding:"9px",border:"none",background:"transparent",color:payTab===t.key?C.primary:C.text3,fontWeight:payTab===t.key?800:600,fontSize:11,cursor:"pointer",borderBottom:payTab===t.key?`2px solid ${C.primary}`:"2px solid transparent" }}>{t.label}</button>))}
             </div>
             {payTab==="payment"&&(<div style={{ padding:"8px 12px" }}>
               {/* Payment method buttons */}
@@ -1445,6 +1470,39 @@ export default function App() {
                     </div>
                   )}
                 </div>}</div>)}
+            {payTab==="loyalty"&&(<div style={{ padding:"8px 12px" }}>
+              <div style={{ display:"flex",gap:6,marginBottom:8 }}>
+                <input
+                  value={loyaltyPhone}
+                  onChange={e=>{
+                    const v=e.target.value.replace(/\D/g,"").slice(0,11);
+                    setLoyaltyPhone(v);
+                    setLoyaltyCustomer(null);
+                    if(v.length>=10){
+                      setLoyaltyChecking(true);
+                      lookupLoyaltyCustomer(v).then(c=>{ setLoyaltyCustomer(c); setLoyaltyChecking(false); });
+                    }
+                  }}
+                  placeholder="Customer mobile (optional)"
+                  style={{ flex:1,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}
+                />
+                <button onClick={()=>setShowLoyaltyQR(true)} style={{ padding:"9px 14px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📱 QR</button>
+              </div>
+              {loyaltyChecking&&<div style={{ fontSize:11,color:C.text3 }}>Checking...</div>}
+              {!loyaltyChecking&&loyaltyCustomer&&(
+                <div style={{ background:C.successBg,border:`1.5px solid ${C.success}`,borderRadius:8,padding:"8px 10px",fontSize:12,color:C.success,fontWeight:700 }}>
+                  ✓ {loyaltyCustomer.name} — will earn 2.5% rebate
+                </div>
+              )}
+              {!loyaltyChecking&&loyaltyPhone.length>=10&&!loyaltyCustomer&&(
+                <div style={{ background:C.bg3,borderRadius:8,padding:"8px 10px",fontSize:12,color:C.text3 }}>
+                  Not enrolled — show 📱 QR to sign up
+                </div>
+              )}
+              {loyaltyPhone.length<10&&(
+                <div style={{ fontSize:11,color:C.text3 }}>Optional: link this order to a Loyalty account to auto-credit a 2.5% rebate.</div>
+              )}
+            </div>)}
             {payTab==="expense"&&(<div style={{ padding:"8px 12px" }}>
               <select value={expCategory} onChange={e=>setExpCategory(e.target.value)} style={{ width:"100%",marginBottom:5,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}>
                 <option>Cost of Products/Ingredients</option>
