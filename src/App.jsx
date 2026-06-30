@@ -34,6 +34,36 @@ const auditLog = async (action_type, action_detail, user, branch_id=null, branch
   } catch(e) { console.warn("Audit log failed:", e); }
 };
 
+// ─── LOYALTY PROGRAM (self-service, no cashier point entry) ──────────────────
+const LOYALTY_REBATE_RATE = 0.025;
+const LOYALTY_SIGNUP_URL = "https://limjoe-pos.vercel.app/loyalty";
+
+// Looks up a loyalty customer by phone (read-only check; cashier can't edit balances here)
+const lookupLoyaltyCustomer = async (phone) => {
+  if (!phone || phone.length < 10) return null;
+  const data = await sb(`loyalty_customers?phone=eq.${phone}&select=*`);
+  return data && data.length ? data[0] : null;
+};
+
+// Automatically credits rebate after a successful charge. Amount comes only
+// from the transaction's own total (never typed in by the cashier), and is
+// tied 1:1 to the order number to prevent double-crediting.
+const creditLoyaltyRebate = async (customer, txnTotal, orNum, branchName) => {
+  if (!customer) return;
+  const existing = await sb(`loyalty_transactions?or_num=eq.${orNum}&select=id`);
+  if (existing && existing.length) return; // already credited — idempotency guard
+  const rebateEarned = Math.round(txnTotal * LOYALTY_REBATE_RATE * 100) / 100;
+  await sb("loyalty_transactions", "POST", {
+    customer_id: customer.id, phone: customer.phone, customer_name: customer.name,
+    or_num: String(orNum), transaction_amount: txnTotal, rebate_earned: rebateEarned,
+    rebate_redeemed: 0, type: "earn", branch: branchName,
+  });
+  await sb(`loyalty_customers?id=eq.${customer.id}`, "PATCH", {
+    rebate_earned: (customer.rebate_earned || 0) + rebateEarned,
+    total_spent: (customer.total_spent || 0) + txnTotal,
+  });
+};
+
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const BRANCHES = [
   { id: 1, name: "Branch 1" }, { id: 2, name: "Branch 2" },
@@ -70,7 +100,7 @@ const BORDER_COLORS = ["#d97706","#7c3aed","#db2777","#2563eb","#16a34a","#ea580
 const todayStr = () => new Date().toISOString().split("T")[0];
 const nowStr = () => new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const nowFull = () => new Date().toLocaleString("en-PH");
-const applyDiscount = (p) => Math.round((p / 1.12) * 0.80 * 100) / 100;
+const applyDiscount = (p) => Math.round(p * 0.80 * 100) / 100;
 const calcMins = (inTime, outTime) => { const [ih,im]=inTime.split(":").map(Number); const [oh,om]=outTime.split(":").map(Number); return (oh*60+om)-(ih*60+im); };
 const formatHrs = (mins) => `${Math.floor(mins/60)}h ${mins%60}m`;
 const SALES_KEY = "limjoe-sales-v11"; const DTR_KEY = "limjoe-dtr-v11"; const EXP_KEY = "limjoe-exp-v11";
@@ -779,6 +809,10 @@ export default function App() {
   const [sizeModal, setSizeModal] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [payTab, setPayTab] = useState("payment");
+  const [loyaltyPhone, setLoyaltyPhone] = useState("");
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState(null);
+  const [loyaltyChecking, setLoyaltyChecking] = useState(false);
+  const [showLoyaltyQR, setShowLoyaltyQR] = useState(false);
   const [cashGiven, setCashGiven] = useState(0);
   const [discountType, setDiscountType] = useState(null);
   const [showDiscountModal, setShowDiscountModal] = useState(false);
@@ -1404,7 +1438,7 @@ export default function App() {
               )}
             </div>)}
             {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setShowDiscountModal(true);} }} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>setDiscountType(null)} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>
-                  {discountType==="SNR"||discountType==="PWD"?`Gross ÷ 1.12 × 80% | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}
+                  {discountType==="SNR"||discountType==="PWD"?`20% Discount | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}
                   {(discountType==="SNR"||discountType==="PWD")&&discountCustomerName&&(
                     <div style={{ marginTop:4,background:C.successBg,borderRadius:6,padding:"4px 8px",color:C.success,fontWeight:700 }}>
                       👤 {discountCustomerName} | ID: {discountCustomerID}
