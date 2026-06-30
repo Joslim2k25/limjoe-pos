@@ -78,6 +78,19 @@ const EMPLOYEES_SEED = [
 ];
 const ROLE_LEVEL = { owner: 4, admin: 3, manager: 2, cashier: 1 };
 const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cashier: "#16a34a" };
+
+// ─── PAYROLL RATES ────────────────────────────────────────────────────────────
+const DEFAULT_DAILY_RATE = 695; // NCR rate
+const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees
+const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "May N. Cortez"];
+const getDailyRate = (emp) => {
+  if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
+  if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) return PROVINCIAL_DAILY_RATE;
+  return DEFAULT_DAILY_RATE;
+};
+const getOTRate = (emp) => getDailyRate(emp) / 8 * 1.25;
+const PAYROLL_DEDUCTIONS = 850; // SSS 450 + PhilHealth 200 + Pag-IBIG 200, applied on the 25th/30th cutoff
+
 const PAYMENT_METHODS = [
   { key: "cash", label: "Cash", emoji: "💵", color: "#16a34a", type: "cash" },
   { key: "gcash", label: "GCash", emoji: "💚", color: "#2563eb", type: "cashless" },
@@ -871,6 +884,9 @@ export default function App() {
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); d.setDate(10); return d.toISOString().split("T")[0]; });
+  const [manualPayrollEmp, setManualPayrollEmp] = useState("");
+  const [manualPayrollDays, setManualPayrollDays] = useState("");
+  const [manualPayrollOT, setManualPayrollOT] = useState("");
   const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
   const [depositLoading, setDepositLoading] = useState(false);
 
@@ -1544,7 +1560,29 @@ export default function App() {
     const rOrders=getOrders(reportDate,bFilter); const rExps=getExps(reportDate,bFilter); const rSum=calcSum(rOrders); const rExpTotal=rExps.reduce((s,e)=>s+parseFloat(e.amount),0); const rNet=rSum.gross-rExpTotal;
     const todayOrders=getOrders(todayStr(),bFilter); const todaySum=calcSum(todayOrders); const todayExp=getExps(todayStr(),bFilter).reduce((s,e)=>s+parseFloat(e.amount),0);
     const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
-    const payrollRows=employees.map(emp=>{let totalMins=0;let workDays=0;const start=new Date(payrollFrom),end=new Date(payrollTo);for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){const dk=d.toISOString().split("T")[0];let dayMins=0;BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});if(dayMins>0){workDays++;totalMins+=dayMins;}}return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins)};});
+    const payrollRows=employees.map(emp=>{
+      let totalMins=0,workDays=0,otMins=0;
+      const start=new Date(payrollFrom),end=new Date(payrollTo);
+      for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+        const dk=d.toISOString().split("T")[0];
+        let dayMins=0;
+        BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});
+        if(dayMins>0){
+          workDays++;totalMins+=dayMins;
+          if(dayMins>480)otMins+=(dayMins-480); // beyond 8 hrs/day counts as OT
+        }
+      }
+      const dailyRate=getDailyRate(emp);
+      const otRate=getOTRate(emp);
+      const otHours=Math.round((otMins/60)*100)/100;
+      const basicPay=workDays*dailyRate;
+      const otPay=Math.round(otHours*otRate*100)/100;
+      const grossPay=basicPay+otPay;
+      const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
+      const totalDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+      const netPay=grossPay-totalDed;
+      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,otHours,basicPay,otPay,grossPay,totalDed,netPay};
+    });
 
     const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
 
@@ -1771,7 +1809,65 @@ export default function App() {
 
           {adminTab==="dtr"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>🕐 DTR — {reportDate}</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>{employees.map(emp=>BRANCHES.map(branch=>{ const logs=getEmpDTR(emp.id,branch.id,reportDate); if(!logs.length)return null; const{hrs,mins,totalMins}=calcDTRHours(logs); const isStillIn=!logs[logs.length-1].out; return(<div key={`${emp.id}_${branch.id}`} style={{ background:"white",borderRadius:10,padding:"12px 14px",marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}><div><span style={{ fontWeight:700,fontSize:13,color:C.text }}>{emp.emoji} {emp.name}</span><span style={{ fontSize:10,color:C.text3,marginLeft:8 }}>📍 {branch.name}</span></div><div style={{ textAlign:"right" }}><div style={{ fontWeight:900,fontSize:14,color:isStillIn?C.warning:C.success }}>{isStillIn?`${hrs}h ${mins}m (ongoing)`:formatHrs(totalMins)}</div></div></div>{logs.map((l,i)=>{ const dur=l.out?formatHrs(calcMins(l.in,l.out)):"ongoing"; return(<div key={i} style={{ display:"flex",gap:12,fontSize:11,padding:"3px 0",borderTop:`1px solid ${C.border}` }}><span style={{ color:C.text3,minWidth:40 }}>{i===0?"AM":`Break ${i}`}</span><span style={{ color:C.success }}>🟢 <b>{l.in}</b></span><span style={{ color:l.out?C.danger:C.warning }}>{l.out?<>🔴 <b>{l.out}</b></>:"⏳ Still in"}</span><span style={{ color:C.text3 }}>{dur}</span></div>); })}</div>); }))}{employees.every(emp=>BRANCHES.every(b=>!getEmpDTR(emp.id,b.id,reportDate).length))&&<div style={EM}>Walang DTR records</div>}</div>)}
 
-          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>{payrollRows.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:22 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</div></div><div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:18,color:C.info }}>{emp.workDays}</div><div style={{ fontSize:9,color:C.text3 }}>Work Days</div></div><div style={{ textAlign:"center",minWidth:90 }}><div style={{ fontWeight:900,fontSize:16,color:C.success }}>{emp.totalHrs}</div><div style={{ fontSize:9,color:C.text3 }}>Total Hours</div></div></div></div>))}{payrollRows.length===0&&<div style={EM}>Walang employees</div>}</div>)}
+          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
+            <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
+              <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions:</b> SSS ₱450 + PhilHealth ₱200 + Pag-IBIG ₱200 = ₱850 (cutoffs ending 25th/30th)
+            </div>
+            <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
+              <div style={{ fontWeight:800,fontSize:13,color:C.text,marginBottom:4 }}>✍️ Manual Payroll Entry</div>
+              <div style={{ fontSize:11,color:C.text3,marginBottom:10 }}>Gamitin kung walang DTR logs ang isang empleyado. I-type ang days worked, awtomatikong ko-compute ang payslip.</div>
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end" }}>
+                <div style={{ flex:1,minWidth:140 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>EMPLOYEE</div>
+                  <select value={manualPayrollEmp} onChange={e=>setManualPayrollEmp(e.target.value)} style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>
+                    <option value="">Select...</option>
+                    {employees.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ width:100 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>DAYS WORKED</div>
+                  <input type="number" min="0" max="15" step="0.5" value={manualPayrollDays} onChange={e=>setManualPayrollDays(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
+                <div style={{ width:90 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>OT HOURS</div>
+                  <input type="number" min="0" step="0.5" value={manualPayrollOT} onChange={e=>setManualPayrollOT(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
+                <button onClick={()=>{
+                  const emp=employees.find(e=>String(e.id)===String(manualPayrollEmp));
+                  const days=parseFloat(manualPayrollDays)||0;
+                  const otHrs=parseFloat(manualPayrollOT)||0;
+                  if(!emp){toast("Pumili ng employee!","err");return;}
+                  if(days<=0){toast("Ilagay ang days worked!","err");return;}
+                  const dailyRate=getDailyRate(emp);
+                  const otRate=getOTRate(emp);
+                  const basicPay=days*dailyRate;
+                  const otPay=Math.round(otHrs*otRate*100)/100;
+                  const grossPay=basicPay+otPay;
+                  const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
+                  const totalDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+                  const netPay=grossPay-totalDed;
+                  printWin(`<div class="c"><div class="brand">FOOD LAND</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
+                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");
+                }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
+              </div>
+            </div>
+            {payrollRows.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
+                <span style={{ fontSize:22 }}>{emp.emoji}</span>
+                <div style={{ flex:1,minWidth:120 }}>
+                  <div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div>
+                  <div style={{ fontSize:11,color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()} · ₱{emp.dailyRate}/day</div>
+                </div>
+                <div style={{ textAlign:"center",minWidth:60 }}><div style={{ fontWeight:900,fontSize:16,color:C.info }}>{emp.workDays}</div><div style={{ fontSize:9,color:C.text3 }}>Days</div></div>
+                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.otHours>0?C.warning:C.text3 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>OT Hrs</div></div>
+                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.text }}>₱{emp.basicPay.toFixed(0)}</div><div style={{ fontSize:9,color:C.text3 }}>Basic</div></div>
+                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed}`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Deductions</div></div>
+                <div style={{ textAlign:"center",minWidth:90 }}><div style={{ fontWeight:900,fontSize:18,color:C.success }}>₱{emp.netPay.toFixed(2)}</div><div style={{ fontSize:9,color:C.text3 }}>NET PAY</div></div>
+                <button onClick={()=>printWin(`<div class="c"><div class="brand">FOOD LAND</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.totalDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
+              </div>
+            </div>))}
+            {payrollRows.length===0&&<div style={EM}>Walang employees</div>}
+          </div>)}
 
           {adminTab==="employees"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={PT}>👥 Employee Management</div><button onClick={()=>setShowAddEmp(s=>!s)} style={{ padding:"8px 16px",background:showAddEmp?C.bg3:C.primary,border:`1px solid ${showAddEmp?C.border:C.primary}`,borderRadius:8,color:showAddEmp?C.text2:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddEmp?"✕ Cancel":"+ Add Employee"}</button></div>{showAddEmp&&(<div style={{ background:"white",borderRadius:12,padding:"16px",marginBottom:16,border:`2px solid ${C.primary}33`,boxShadow:C.shadow }}><div style={{ display:"flex",gap:8,marginBottom:8,flexWrap:"wrap" }}><input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="Pangalan" style={{ flex:2,minWidth:140,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}/><input value={newEmpPin} onChange={e=>setNewEmpPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="4-digit PIN" maxLength={4} style={{ flex:1,minWidth:100,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none",fontFamily:"monospace",letterSpacing:2 }}/></div><div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}><select value={newEmpRole} onChange={e=>setNewEmpRole(e.target.value)} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select>{newEmpRole!=="admin"&&(<select value={newEmpBranch} onChange={e=>setNewEmpBranch(parseInt(e.target.value))} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>)}</div><button onClick={createEmployee} style={{ width:"100%",padding:"11px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:13,cursor:"pointer" }}>Save Employee</button></div>)}{employees.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:24 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:C.text3 }}><span style={{ color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</span>{emp.branchId?` · ${BRANCHES.find(b=>b.id===emp.branchId)?.name}`:" · All Branches"}</div></div><div style={{ background:C.bg3,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:18,fontWeight:900,color:C.warning,letterSpacing:4,border:`1px solid ${C.border}` }}>{emp.pin}</div>{emp.id!==currentUser?.id&&(<button onClick={()=>deactivateEmployee(emp)} style={{ padding:"7px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Deactivate</button>)}</div></div>))}</div>)}
 
