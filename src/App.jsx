@@ -64,6 +64,14 @@ const creditLoyaltyRebate = async (customer, txnTotal, orNum, branchName) => {
   });
 };
 
+// ─── LEMON USAGE TRACKING (JUICE category only) ───────────────────────────────
+// Large = 1 whole lemon, Medium = 1/2 lemon. Computed from the cart at checkout.
+const calcLemonUsage = (cartItems) =>
+  cartItems.reduce((sum, item) => {
+    if (item.category !== "JUICE") return sum;
+    return sum + item.qty * (item.size === "L" ? 1 : 0.5);
+  }, 0);
+
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const BRANCHES = [
   { id: 1, name: "Branch 1" }, { id: 2, name: "Branch 2" },
@@ -860,6 +868,7 @@ export default function App() {
   const [discountCustomerName, setDiscountCustomerName] = useState("");
   const [discountCustomerID, setDiscountCustomerID] = useState("");
   const [orderNum, setOrderNum] = useState(1001);
+  const [todayLemons, setTodayLemons] = useState(0);
   const [lastReceipt, setLastReceipt] = useState(null);
   const [showQR, setShowQR] = useState(false);
   const [expDesc, setExpDesc] = useState("");
@@ -875,6 +884,7 @@ export default function App() {
   const [reportDate, setReportDate] = useState(todayStr());
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0,7));
   const [selectedBranch, setSelectedBranch] = useState("all");
+  const [lemonUsageRows, setLemonUsageRows] = useState([]);
   const [depositAmt, setDepositAmt] = useState("");
   const [depositFrom, setDepositFrom] = useState(todayStr());
   const [depositTo, setDepositTo] = useState(todayStr());
@@ -1053,6 +1063,14 @@ export default function App() {
     if (loyaltyCustomer) {
       creditLoyaltyRebate(loyaltyCustomer, total, orderNum, currentBranch.name);
     }
+
+    // Lemon usage tracking (JUICE category only): Large = 1 lemon, Medium = 1/2 lemon
+    const lemonsUsed = calcLemonUsage(cart);
+    if (lemonsUsed > 0) {
+      await sb("lemon_usage", "POST", { branch_id: currentBranch.id, usage_date: dk, qty: lemonsUsed, order_num: orderNum });
+      setTodayLemons(prev => prev + lemonsUsed);
+    }
+
     setLastReceipt(order); setOrderNum(n=>n+1);
     setCart([]); setCashGiven(0); setDiscountType(null); setPaymentMethod("cash"); setDiscountCustomerName(""); setDiscountCustomerID("");
     setLoyaltyPhone(""); setLoyaltyCustomer(null);
@@ -1117,6 +1135,23 @@ export default function App() {
       });
     }
   },[adminTab]);
+
+  // ── LEMON USAGE (cashier: today's total for current branch) ────────────────
+  const loadTodayLemons = async (branchId) => {
+    const rows = await sb(`lemon_usage?branch_id=eq.${branchId}&usage_date=eq.${todayStr()}&select=qty`);
+    if (Array.isArray(rows)) setTodayLemons(rows.reduce((s,r)=>s+parseFloat(r.qty),0));
+    else setTodayLemons(0);
+  };
+  useEffect(()=>{ if(env==="cashier") loadTodayLemons(currentBranch.id); }, [env, currentBranch, posScreen]);
+
+  // ── LEMON USAGE (admin: dashboard, by reportDate) ───────────────────────────
+  useEffect(()=>{
+    if(adminTab==="dashboard"){
+      sb(`lemon_usage?usage_date=eq.${reportDate}&select=*`).then(rows=>{
+        if(Array.isArray(rows)) setLemonUsageRows(rows);
+      });
+    }
+  },[adminTab, reportDate]);
 
   // ── LOADING ───────────────────────────────────────────────────────────────
   if (loading) return (
@@ -1288,6 +1323,14 @@ export default function App() {
           <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:10 }}>📊 TODAY — {todayStr()}</div>
           <div style={{ display:"flex",gap:8 }}>
             {[{label:"Gross Sales",val:`₱${branchSum.gross.toFixed(0)}`,color:C.success},{label:"Expenses",val:`₱${branchExp.toFixed(0)}`,color:C.danger},{label:"Net Sales",val:`₱${(branchSum.gross-branchExp).toFixed(0)}`,color:C.warning},{label:"Transactions",val:branchSum.txns,color:C.info}].map(s=>(<div key={s.label} style={{ flex:1,textAlign:"center",background:C.bg3,borderRadius:10,padding:"10px 4px" }}><div style={{ fontSize:16,fontWeight:900,color:s.color }}>{s.val}</div><div style={{ fontSize:9,color:C.text3,marginTop:2 }}>{s.label}</div></div>))}
+          </div>
+        </div>
+
+        <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow,marginBottom:12,display:"flex",alignItems:"center",gap:12 }}>
+          <div style={{ fontSize:28 }}>🍋</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:11,color:C.text3,fontWeight:700 }}>LEMONS USED TODAY — {currentBranch.name}</div>
+            <div style={{ fontSize:20,fontWeight:900,color:C.primary }}>{todayLemons % 1 === 0 ? todayLemons : todayLemons.toFixed(1)} pcs</div>
           </div>
         </div>
 
@@ -1752,6 +1795,28 @@ export default function App() {
               <div style={PT}>📊 Dashboard — {todayStr()}</div>
               <div style={SR}><SB label="Gross" val={`₱${todaySum.gross.toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${todayExp.toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${(todaySum.gross-todayExp).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={todaySum.txns} color={C.info}/></div>
               {lowStockCount>0&&<div style={{ background:C.dangerBg,borderRadius:10,padding:"10px 14px",marginBottom:12,border:`1px solid ${C.danger}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}><div style={{ fontSize:12,color:C.danger,fontWeight:700 }}>⚠️ {lowStockCount} raw materials na mababa ang stock!</div><button onClick={()=>setAdminTab("inventory")} style={{ padding:"5px 12px",background:C.danger,border:"none",borderRadius:6,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Tingnan →</button></div>}
+
+              <div style={SEC}>🍋 LEMON USAGE — {reportDate}</div>
+              <div style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8 }}>
+                  <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                  <div style={{ fontWeight:900,fontSize:20,color:C.primary }}>
+                    🍋 {(()=>{ const t=lemonUsageRows.filter(r=>bFilter?r.branch_id===bFilter:true).reduce((s,r)=>s+parseFloat(r.qty),0); return t%1===0?t:t.toFixed(1); })()} pcs total
+                  </div>
+                </div>
+                {BRANCHES.map(b=>{
+                  const branchTotal=lemonUsageRows.filter(r=>r.branch_id===b.id).reduce((s,r)=>s+parseFloat(r.qty),0);
+                  if(branchTotal===0) return null;
+                  return(
+                    <div key={b.id} style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${C.border}` }}>
+                      <span style={{ color:C.text2 }}>🏪 {b.name}</span>
+                      <span style={{ fontWeight:700,color:C.warning }}>{branchTotal%1===0?branchTotal:branchTotal.toFixed(1)} pcs</span>
+                    </div>
+                  );
+                })}
+                {lemonUsageRows.length===0&&<div style={{ fontSize:11,color:C.text3,textAlign:"center",padding:"6px 0" }}>Walang lemon usage na naka-log sa araw na ito</div>}
+              </div>
+
               <div style={SEC}>SALES PER BRANCH TODAY</div>
               {BRANCHES.map(b=>{ const bOrds=getOrders(todayStr(),b.id); const bSum=calcSum(bOrds); const bExp=getExps(todayStr(),b.id).reduce((s,e)=>s+parseFloat(e.amount),0); return(<div key={b.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"white",borderRadius:10,marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:13 }}>🏪 {b.name}</div><div style={{ fontSize:10,color:C.text3 }}>{bSum.txns} orders · Exp: ₱{bExp.toFixed(0)}</div></div><div style={{ textAlign:"right" }}><div style={{ fontWeight:900,fontSize:15,color:C.success }}>₱{bSum.gross.toFixed(0)}</div><div style={{ fontSize:10,color:C.warning }}>Net: ₱{(bSum.gross-bExp).toFixed(0)}</div></div></div>); })}
               <div style={SEC}>🏆 Top 8 Items Today</div>
