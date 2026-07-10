@@ -842,6 +842,7 @@ export default function App() {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showProductEditor, setShowProductEditor] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
+  const [showBranchStock, setShowBranchStock] = useState(false);
   const [showDelivery, setShowDelivery] = useState(false);
 
   // Auth
