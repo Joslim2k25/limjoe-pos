@@ -1345,8 +1345,11 @@ export default function App() {
           </button>
           <button onClick={()=>setShowInventory(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📦</span><span>Inventory</span>
-            {lowStockCount>0&&<span style={{ fontSize:9,background:C.danger,color:"white",padding:"1px 6px",borderRadius:20 }}>⚠️ {lowStockCount} low</span>}
+               {lowStockCount>0&&<span style={{ fontSize:9,background:C.danger,color:"white",padding:"1px 6px",borderRadius:20 }}>⚠️ {lowStockCount} low</span>}
           </button>
+          <button onClick={()=>setShowDelivery(true)} style={{ flex:1,padding:"12px",background:"white",border:"2px solid #16a34a",borderRadius:12,color:"#16a34a",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+  <span style={{ fontSize:20 }}>🚚</span><span>Log Delivery</span>
+</button>
           {canAdmin&&<button onClick={()=>setShowBulkUpload(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📤</span><span>Bulk Upload</span><span style={{ fontSize:9,opacity:0.7 }}>Excel</span>
           </button>}
