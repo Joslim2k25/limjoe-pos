@@ -1247,7 +1247,8 @@ export default function App() {
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
       {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2}/>}
- {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
+{showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
+      {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
     </>
   );
 
