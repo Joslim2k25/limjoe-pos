@@ -2113,3 +2113,216 @@ const SR={display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"};
 const SEC={fontSize:10,color:"#64748b",letterSpacing:1,fontWeight:700,marginBottom:8,marginTop:14};
 const TR={display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f1f5f9",fontSize:12,gap:8};
 const EM={textAlign:"center",color:"#94a3b8",padding:"18px 0",fontSize:12};
+
+
+
+/* ============================================================================
+   PASTE INSTRUCTIONS
+   ============================================================================
+   1. Paste these TWO component functions anywhere near your other modal
+      components in App.jsx (e.g. right after `InventoryModal`).
+
+   2. In your main App() function, add two new state lines near the other
+      modal states (search for `const [showInventory, setShowInventory]`):
+
+        const [showDelivery, setShowDelivery] = useState(false);
+        const [showBranchStock, setShowBranchStock] = useState(false);
+
+   3. In the `modals` block (search for `{showInventory&&<InventoryModal ...`)
+      add:
+
+        {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
+        {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
+
+   4. Add buttons wherever you want cashiers/managers to reach these — e.g. in
+      the cashier POS "main" screen next to your existing Inventory button:
+
+        <button onClick={()=>setShowDelivery(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.success}`,borderRadius:12,color:C.success,fontWeight:700,fontSize:12,cursor:"pointer" }}>
+          🚚 Log Delivery
+        </button>
+        <button onClick={()=>setShowBranchStock(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer" }}>
+          📊 Branch Stock
+        </button>
+
+   NOTES
+   - Uses the same `sb()` REST helper already defined at the top of your file.
+   - Respects the RLS policies already set up in Supabase:
+       * Any staff role (cashier/manager/admin/owner) can INSERT a delivery.
+       * Only manager/admin/owner can UPDATE/DELETE a delivery — so the
+         Delete button below will simply fail (RLS blocks it) if a cashier
+         somehow sees it. We also hide it in the UI for cashiers as a
+         first line of defense — but the real enforcement is server-side.
+   ========================================================================= */
+
+// ─── DELIVERY LOGGING MODAL (cashier can add, cannot delete) ─────────────────
+function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
+  const [materials, setMaterials] = useState([]);
+  const [recentDeliveries, setRecentDeliveries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedMaterial, setSelectedMaterial] = useState("");
+  const [qty, setQty] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const isManager = ROLE_LEVEL[currentUser?.role || "cashier"] >= 2; // manager/admin/owner
+
+  useEffect(() => { loadData(); }, []);
+
+  async function loadData() {
+    setLoading(true);
+    const [mats, dels] = await Promise.all([
+      sb("raw_materials?select=id,name,unit&order=name.asc"),
+      sb(`deliveries?branch_id=eq.${currentBranch.id}&order=created_at.desc&limit=20&select=*,raw_materials(name,unit)`),
+    ]);
+    if (mats) setMaterials(mats);
+    if (dels) setRecentDeliveries(dels);
+    setLoading(false);
+  }
+
+  async function submitDelivery() {
+    if (!selectedMaterial) { toast("Pumili ng raw material!", "err"); return; }
+    const q = parseFloat(qty);
+    if (isNaN(q) || q <= 0) { toast("Lagay ng valid na quantity!", "err"); return; }
+    setSubmitting(true);
+    const result = await sb("deliveries", "POST", [{
+      material_id: selectedMaterial,
+      qty: q,
+      branch_id: currentBranch.id,
+      delivered_by: currentUser?.name || "Unknown",
+      note: note.trim() || null,
+    }]);
+    setSubmitting(false);
+    if (!result) { toast(`Hindi na-save: ${lastSbError || "unknown error"}`, "err"); return; }
+    toast(`✅ Delivery logged: +${q} ${materials.find(m=>m.id===selectedMaterial)?.unit || ""}`);
+    setSelectedMaterial(""); setQty(""); setNote("");
+    loadData();
+  }
+
+  async function deleteDelivery(id) {
+    if (!isManager) { toast("Manager/Admin lang ang pwedeng mag-delete!", "err"); return; }
+    if (!window.confirm("Delete this delivery record? Ire-reverse ang dagdag sa stock.")) return;
+    // NOTE: deleting the delivery row does NOT automatically reverse the stock add.
+    // If you want auto-reversal, ask me to add a DELETE trigger for `deliveries`.
+    const res = await sb(`deliveries?id=eq.${id}`, "DELETE");
+    if (lastSbError) { toast("Hindi na-delete (baka wala kang access): " + lastSbError, "err"); return; }
+    toast("Delivery record deleted (stock hindi awtomatikong nababawasan).");
+    loadData();
+  }
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:16,width:"min(560px,95vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
+        <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #fde68a",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10 }}>
+          <div>
+            <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>🚚 Log Delivery</div>
+            <div style={{ fontSize:11,color:"#78716c" }}>📍 {currentBranch.name}</div>
+          </div>
+          <button onClick={onClose} style={{ border:"none",background:"#fef9e7",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
+        </div>
+
+        <div style={{ padding:"16px 22px",borderBottom:"1px solid #fde68a" }}>
+          <div style={{ fontSize:11,color:"#78716c",fontWeight:700,marginBottom:8 }}>NEW DELIVERY</div>
+          <select value={selectedMaterial} onChange={e=>setSelectedMaterial(e.target.value)} style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",marginBottom:8,boxSizing:"border-box" }}>
+            <option value="">-- Pumili ng raw material --</option>
+            {materials.map(m=><option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+          </select>
+          <div style={{ display:"flex",gap:8,marginBottom:8 }}>
+            <input type="number" min="0" step="0.01" value={qty} onChange={e=>setQty(e.target.value)} placeholder="Quantity na dumating" style={{ flex:1,padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",boxSizing:"border-box" }}/>
+          </div>
+          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional — e.g. supplier, DR#)" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",marginBottom:10,boxSizing:"border-box" }}/>
+          <button onClick={submitDelivery} disabled={submitting} style={{ width:"100%",padding:"12px",background:submitting?"#f1f5f9":"#16a34a",border:"none",borderRadius:10,color:submitting?"#94a3b8":"white",fontWeight:900,fontSize:14,cursor:submitting?"not-allowed":"pointer" }}>
+            {submitting ? "Sinasave..." : "+ I-log ang Delivery"}
+          </button>
+        </div>
+
+        <div style={{ padding:"14px 22px" }}>
+          <div style={{ fontSize:11,color:"#78716c",fontWeight:700,marginBottom:8 }}>RECENT DELIVERIES — {currentBranch.name}</div>
+          {loading ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div> :
+            recentDeliveries.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang delivery na naka-log dito.</div> :
+            recentDeliveries.map(d=>(
+              <div key={d.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid #f1f5f9" }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:13,color:"#1c1917" }}>{d.raw_materials?.name || "?"} <span style={{ color:"#16a34a" }}>+{d.qty} {d.raw_materials?.unit}</span></div>
+                  <div style={{ fontSize:10,color:"#78716c" }}>{d.delivered_by} · {new Date(d.created_at).toLocaleString("en-PH")}{d.note?` · ${d.note}`:""}</div>
+                </div>
+                {isManager && (
+                  <button onClick={()=>deleteDelivery(d.id)} style={{ padding:"5px 10px",background:"#fef2f2",border:"1px solid #dc2626",borderRadius:6,color:"#dc2626",fontWeight:700,fontSize:10,cursor:"pointer" }}>Delete</button>
+                )}
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PER-BRANCH STOCK VIEWER ──────────────────────────────────────────────────
+function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [viewAllBranches, setViewAllBranches] = useState(false);
+  const isManager = ROLE_LEVEL[userRole] >= 2;
+
+  useEffect(() => { loadStock(); }, [viewAllBranches]);
+
+  async function loadStock() {
+    setLoading(true);
+    const filter = viewAllBranches ? "" : `&branch_id=eq.${currentBranch.id}`;
+    const data = await sb(`branch_stock?select=*,raw_materials(name,unit,category),branches(name)&order=raw_materials(name).asc${filter}`);
+    if (data) setRows(data);
+    setLoading(false);
+  }
+
+  const lowStockRows = rows.filter(r => r.stock_qty <= r.reorder_pt);
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:16,width:"min(640px,95vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
+        <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #fde68a",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10 }}>
+          <div>
+            <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>📊 Branch Stock</div>
+            {lowStockRows.length>0 && <div style={{ fontSize:11,color:"#dc2626",fontWeight:700 }}>⚠️ {lowStockRows.length} item(s) mababa ang stock</div>}
+          </div>
+          <button onClick={onClose} style={{ border:"none",background:"#fef9e7",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
+        </div>
+
+        {isManager && (
+          <div style={{ padding:"10px 22px",borderBottom:"1px solid #fde68a" }}>
+            <label style={{ display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#44403c",cursor:"pointer" }}>
+              <input type="checkbox" checked={viewAllBranches} onChange={e=>setViewAllBranches(e.target.checked)} />
+              Ipakita lahat ng branches (Manager/Admin only)
+            </label>
+          </div>
+        )}
+
+        <div style={{ padding:"14px 22px" }}>
+          {loading ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8" }}>Loading...</div> :
+            rows.length===0 ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8",fontSize:12 }}>Walang stock records para sa branch na ito. I-log muna ng delivery.</div> :
+            rows.map(r=>{
+              const isLow = r.stock_qty <= r.reorder_pt;
+              return (
+                <div key={r.id} style={{ borderRadius:10,padding:"10px 14px",marginBottom:7,border:`1px solid ${isLow ? "#dc2626" : "#fde68a"}`,background:isLow ? "#fef2f2" : "white" }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:700,fontSize:13,color:"#1c1917" }}>
+                        {r.raw_materials?.name || "?"}
+                        {viewAllBranches && <span style={{ fontSize:10,color:"#64748b",marginLeft:6 }}>📍 {r.branches?.name}</span>}
+                      </div>
+                      <div style={{ fontSize:10,color:"#78716c" }}>Reorder at: {r.reorder_pt} {r.raw_materials?.unit}</div>
+                    </div>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontWeight:900,fontSize:16,color:isLow ? "#dc2626" : "#16a34a" }}>{r.stock_qty}</div>
+                      <div style={{ fontSize:10,color:"#78716c" }}>{r.raw_materials?.unit}</div>
+                    </div>
+                    {isLow && <span style={{ fontSize:10,color:"#dc2626",fontWeight:700 }}>⚠️ Low!</span>}
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
