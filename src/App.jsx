@@ -842,6 +842,7 @@ export default function App() {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showProductEditor, setShowProductEditor] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
+  const [showDelivery, setShowDelivery] = useState(false);
 
   // Auth
   const [pinInput, setPinInput] = useState("");
@@ -1245,6 +1246,7 @@ export default function App() {
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
       {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2}/>}
+ {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
     </>
   );
 
