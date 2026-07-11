@@ -1006,6 +1006,7 @@ export default function App() {
   const [discountIdPhotoUrl, setDiscountIdPhotoUrl] = useState(null);
   const [discountIdPhotoUploading, setDiscountIdPhotoUploading] = useState(false);
   const [showTxnDrill, setShowTxnDrill] = useState(null); // {date, type:'payment'|'discount', filterKey, label}
+  const [showDiscountIdLog, setShowDiscountIdLog] = useState(false);
   const [orderNum, setOrderNum] = useState(1001);
   const [todayLemons, setTodayLemons] = useState(0);
   const [lastReceipt, setLastReceipt] = useState(null);
@@ -1034,6 +1035,7 @@ export default function App() {
   const [newEmpBranch, setNewEmpBranch] = useState(BRANCHES[0].id);
   const [showAddEmp, setShowAddEmp] = useState(false);
   const [cashOnHand, setCashOnHand] = useState({});
+  const [bankDeposit, setBankDeposit] = useState({});
   const [cohInput, setCohInput] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditFilter, setAuditFilter] = useState("ALL");
@@ -1096,7 +1098,7 @@ export default function App() {
   // ── LOAD SUPABASE DATA ────────────────────────────────────────────────────
   const loadFromSupabase = async () => {
     try {
-      const [orders, items, exps, dtrRows, emps, cohRows, holRows] = await Promise.all([
+      const [orders, items, exps, dtrRows, emps, cohRows, holRows, bankRows] = await Promise.all([
         sb("orders?select=*&order=order_date.desc,order_time.desc"),
         sb("order_items?select=*"),
         sb("expenses?select=*&order=expense_date.desc"),
@@ -1104,6 +1106,7 @@ export default function App() {
         sb("employees?select=*&order=id.asc"),
         sb("cash_on_hand?select=*"),
         sb("holidays?select=*&order=date.asc"),
+        sb("bank_deposit_status?select=*"),
       ]);
       if (Array.isArray(holRows)) setHolidays(holRows.map(h=>({ id:h.id, date:h.date, name:h.name, type:h.type })));
       if (Array.isArray(emps) && emps.length > 0) {
@@ -1124,7 +1127,9 @@ export default function App() {
       (dtrRows||[]).forEach(r=>{ const k=`${r.employee_id}_${r.branch_id}_${r.dtr_date}`; if(!nd[k])nd[k]=[]; nd[k].push({ in:r.time_in?.slice(0,8)||"", out:r.time_out?r.time_out.slice(0,8):null, name:r.employee_name }); });
       const coh={};
       (cohRows||[]).forEach(r=>{ coh[`${r.branch_id}_${r.record_date}`]=parseFloat(r.amount); });
-      setCashOnHand(coh); setSalesData(ns); setExpenses(ne); setDtrData(nd);
+      const bd={};
+      (bankRows||[]).forEach(r=>{ bd[`${r.branch_id}_${r.record_date}`]={confirmed:r.confirmed,by:r.confirmed_by,at:r.confirmed_at}; });
+      setCashOnHand(coh); setBankDeposit(bd); setSalesData(ns); setExpenses(ne); setDtrData(nd);
       await persist(SALES_KEY,ns); await persist(EXP_KEY,ne); await persist(DTR_KEY,nd);
     } catch(e) {
       try {
@@ -1268,6 +1273,17 @@ export default function App() {
     try { const r=await sb("cash_on_hand","POST",[{branch_id:branchId,record_date:date,amount,recorded_by:currentUser?.name,updated_at:new Date().toISOString()}],{"Prefer":"resolution=merge-duplicates,return=representation"}); if(r)toast(`Cash on Hand saved ☁️`); else toast(`⚠️ ${lastSbError}`,"err"); } catch(e){toast("Error: "+e.message,"err");}
   };
 
+  const toggleBankDeposit = async (branchId, date) => {
+    const key=`${branchId}_${date}`; const newVal = !bankDeposit[key]?.confirmed;
+    const nowIso = new Date().toISOString();
+    const nb={...bankDeposit,[key]:{confirmed:newVal,by:currentUser?.name,at:nowIso}}; setBankDeposit(nb);
+    try {
+      const r=await sb("bank_deposit_status","POST",[{branch_id:branchId,record_date:date,confirmed:newVal,confirmed_by:currentUser?.name,confirmed_at:nowIso,updated_at:nowIso}],{"Prefer":"resolution=merge-duplicates,return=representation"});
+      if(r){ toast(newVal?`✅ Bank deposit confirmed`:`Bank deposit unconfirmed`); auditLog(newVal?'BANK_DEPOSIT_CONFIRM':'BANK_DEPOSIT_UNCONFIRM', `${BRANCHES.find(b=>b.id===branchId)?.name} — ${date}`, currentUser, branchId, BRANCHES.find(b=>b.id===branchId)?.name); }
+      else toast(`⚠️ ${lastSbError}`,"err");
+    } catch(e){ toast("Error: "+e.message,"err"); }
+  };
+
   const getOrders = (date, branchId=null) => { if(branchId)return salesData[`${branchId}_${date}`]?.orders||[]; return BRANCHES.flatMap(b=>salesData[`${b.id}_${date}`]?.orders||[]); };
   const getExps = (date, branchId=null) => { if(branchId)return expenses[`${branchId}_${date}`]||[]; return BRANCHES.flatMap(b=>expenses[`${b.id}_${date}`]||[]); };
   const calcSum = (allOrders) => { const orders=allOrders.filter(o=>!o.voided); let gross=0,discountTotal=0; const iM={},pmM={}; orders.forEach(o=>{ gross+=o.total; discountTotal+=o.discountAmt||0; o.items?.forEach(i=>{const k=`${i.name} (${i.size})`;if(!iM[k])iM[k]={qty:0,sales:0};iM[k].qty+=i.qty;iM[k].sales+=(i.finalPrice||i.price)*i.qty;}); if(!pmM[o.paymentMethod])pmM[o.paymentMethod]={sales:0,count:0}; pmM[o.paymentMethod].sales+=o.total;pmM[o.paymentMethod].count++; }); const cashless=(pmM.gcash?.sales||0)+(pmM.maya?.sales||0)+(pmM.gotyme?.sales||0); const online=(pmM.grabfood?.sales||0)+(pmM.foodpanda?.sales||0)+(pmM.sm?.sales||0); return{gross,txns:orders.length,discountTotal,cashless,online,top8:Object.entries(iM).sort((a,b)=>b[1].qty-a[1].qty).slice(0,8),pmSales:pmM}; };
@@ -1344,13 +1360,18 @@ export default function App() {
 
   // ── INVENTORY LOW STOCK BADGE (per-branch, from branch_stock — NOT the old global raw_materials) ──
   const [lowStockCount, setLowStockCount] = useState(0);
+  const [lowStockNames, setLowStockNames] = useState([]);
   useEffect(()=>{
     (async()=>{
       // Cashier context: always their own branch. Admin context: the selected branch,
       // or ALL branches summed (each branch's low item counted separately, never merged into one).
       const branchFilter = env==="cashier" ? `&branch_id=eq.${currentBranch.id}` : (bFilter ? `&branch_id=eq.${bFilter}` : "");
-      const rows = await sb(`branch_stock?select=stock_qty,reorder_pt${branchFilter}`);
-      if (rows) setLowStockCount(rows.filter(r=>r.stock_qty<=r.reorder_pt).length);
+      const rows = await sb(`branch_stock?select=stock_qty,reorder_pt,raw_materials(name,unit)${branchFilter}`);
+      if (rows) {
+        const low = rows.filter(r=>r.stock_qty<=r.reorder_pt);
+        setLowStockCount(low.length);
+        setLowStockNames(low.map(r=>({ name:r.raw_materials?.name||"?", qty:r.stock_qty, unit:r.raw_materials?.unit||"" })));
+      }
     })();
   },[showInventory, env, bFilter, currentBranch?.id]);
 
@@ -1480,6 +1501,7 @@ export default function App() {
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showTxnDrill&&<TransactionDrillModal date={showTxnDrill.date} type={showTxnDrill.type} filterKey={showTxnDrill.filterKey} label={showTxnDrill.label} branchId={bFilter} onClose={()=>setShowTxnDrill(null)}/>}
+      {showDiscountIdLog&&<DiscountIdLogModal onClose={()=>setShowDiscountIdLog(false)} currentBranch={bFilter?BRANCHES.find(b=>b.id===bFilter):null}/>}
     </>
   );
 
@@ -1598,6 +1620,15 @@ export default function App() {
         <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
           📦 Inventory {lowStockCount>0&&<span style={{ background:C.danger,color:"white",borderRadius:20,padding:"1px 8px",fontSize:12 }}>{lowStockCount} Low Stock!</span>}
         </button>
+        {lowStockCount>0&&(
+          <div style={{ background:C.dangerBg,borderRadius:12,padding:"12px 14px",marginBottom:12,border:`1px solid ${C.danger}` }}>
+            <div style={{ fontSize:13,fontWeight:800,color:C.danger,marginBottom:6 }}>⚠️ Kailangan nang i-replenish!</div>
+            <div style={{ fontSize:11,color:C.text2,lineHeight:1.7 }}>
+              {lowStockNames.slice(0,8).map((it,i)=>(<div key={i} style={{ display:"flex",justifyContent:"space-between" }}><span>{it.name}</span><span style={{ fontWeight:700,color:C.danger }}>{it.qty} {it.unit} na lang</span></div>))}
+              {lowStockNames.length>8&&<div style={{ marginTop:4,color:C.text3 }}>at {lowStockNames.length-8} pang item...</div>}
+            </div>
+          </div>
+        )}
 
         <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
           <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:8 }}>📋 X READING — {currentBranch.name}</div>
@@ -2018,7 +2049,11 @@ export default function App() {
                 </div>
               </div>
               {lowStockCount>0&&<div style={{ background:C.dangerBg,borderRadius:10,padding:"12px 14px",marginBottom:14,border:`1px solid ${C.danger}` }}>
-                <div style={{ fontSize:13,fontWeight:800,color:C.danger }}>⚠️ {lowStockCount} item(s) mababa na ang stock!</div>
+                <div style={{ fontSize:13,fontWeight:800,color:C.danger,marginBottom:6 }}>⚠️ {lowStockCount} item(s) kailangan nang i-replenish!</div>
+                <div style={{ fontSize:11,color:C.text2,lineHeight:1.6 }}>
+                  {lowStockNames.slice(0,8).map((it,i)=>(<span key={i}>{it.name} ({it.qty} {it.unit}){i<Math.min(lowStockNames.length,8)-1?", ":""}</span>))}
+                  {lowStockNames.length>8&&<span> at {lowStockNames.length-8} pa...</span>}
+                </div>
                 <button onClick={()=>setShowBranchStock(true)} style={{ marginTop:8,padding:"6px 14px",background:C.danger,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>Tingnan ang Branch Stock →</button>
               </div>}
               <div style={{ background:C.infoBg,borderRadius:10,padding:"12px 14px",marginBottom:14,border:`1px solid ${C.info}` }}>
@@ -2084,7 +2119,16 @@ export default function App() {
                   })}
                 </div>
               )}
-              {lowStockCount>0&&<div style={{ background:C.dangerBg,borderRadius:10,padding:"10px 14px",marginBottom:12,border:`1px solid ${C.danger}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}><div style={{ fontSize:12,color:C.danger,fontWeight:700 }}>⚠️ {lowStockCount} raw materials na mababa ang stock!</div><button onClick={()=>setAdminTab("inventory")} style={{ padding:"5px 12px",background:C.danger,border:"none",borderRadius:6,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Tingnan →</button></div>}
+              {lowStockCount>0&&<div style={{ background:C.dangerBg,borderRadius:10,padding:"10px 14px",marginBottom:12,border:`1px solid ${C.danger}` }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div style={{ fontSize:12,color:C.danger,fontWeight:700 }}>⚠️ {lowStockCount} item(s) kailangan nang i-replenish!</div>
+                  <button onClick={()=>setAdminTab("inventory")} style={{ padding:"5px 12px",background:C.danger,border:"none",borderRadius:6,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Tingnan →</button>
+                </div>
+                <div style={{ fontSize:10,color:C.text2,marginTop:4,lineHeight:1.5 }}>
+                  {lowStockNames.slice(0,6).map((it,i)=>(<span key={i}>{it.name} ({it.qty}{it.unit}){i<Math.min(lowStockNames.length,6)-1?", ":""}</span>))}
+                  {lowStockNames.length>6&&<span> at {lowStockNames.length-6} pa...</span>}
+                </div>
+              </div>}
 
               <div style={SEC}>🍋 LEMON USAGE — {reportDate}</div>
               <div style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
@@ -2152,7 +2196,7 @@ export default function App() {
             </div>);
           })()}
 
-          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8,flexWrap:"wrap" }}><select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}><option value="all">🏪 All Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>{ const [y,m]=reportMonth.split("-"); const from=`${y}-${m}-01`; const lastDay=new Date(parseInt(y),parseInt(m),0).getDate(); const to=`${y}-${m}-${String(lastDay).padStart(2,"0")}`; setExportFrom(from); setExportTo(to); setShowExportModal(true); }} style={{ padding:"6px 14px",background:"#16a34a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>📥 Download Excel</button></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}
+          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8,flexWrap:"wrap" }}><select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}><option value="all">🏪 All Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>{ const [y,m]=reportMonth.split("-"); const from=`${y}-${m}-01`; const lastDay=new Date(parseInt(y),parseInt(m),0).getDate(); const to=`${y}-${m}-${String(lastDay).padStart(2,"0")}`; setExportFrom(from); setExportTo(to); setShowExportModal(true); }} style={{ padding:"6px 14px",background:"#16a34a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>📥 Download Excel</button><button onClick={()=>setShowDiscountIdLog(true)} style={{ padding:"6px 14px",background:"#c8900a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🪪 Discount ID Log</button></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}
           {bFilter===null && (()=>{
             const [y,m]=reportMonth.split("-"); const daysInMonth=new Date(parseInt(y),parseInt(m),0).getDate();
             const branchTotals = BRANCHES.map(b=>{
@@ -2201,6 +2245,7 @@ export default function App() {
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fde68a" }}>NET SALES</th>
           {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#c4b5fd" }}>Cash on Hand</th>}
           {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700 }}>Status</th>}
+          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700,color:"#86efac" }}>🏦 Bank</th>}
         </tr>
       </thead>
       <tbody>
@@ -2230,6 +2275,16 @@ export default function App() {
               {bFilter!==null&&<td style={{ padding:"9px 8px",textAlign:"center" }}>
                 {r.remarks!=="—"?<span style={{ padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700,background:remarksColor+"20",color:remarksColor }}>{r.remarks==="MATCHED"?"✅ OK":r.remarks}</span>:<span style={{ color:C.text3,fontSize:10 }}>—</span>}
               </td>}
+              {bFilter!==null&&<td style={{ padding:"9px 8px",textAlign:"center" }}>
+                {(()=>{ const info=bankDeposit[`${bFilter}_${r.date}`]; const confirmed=info?.confirmed; return (
+                  <div>
+                    <button onClick={()=>toggleBankDeposit(bFilter,r.date)} style={{ padding:"4px 12px",borderRadius:20,fontSize:10,fontWeight:800,border:`1.5px solid ${confirmed?"#16a34a":C.border}`,background:confirmed?"#16a34a":"white",color:confirmed?"white":C.text3,cursor:"pointer" }}>
+                      {confirmed?"✅ Deposited":"🏦 Bank"}
+                    </button>
+                    {confirmed&&info?.by&&<div style={{ fontSize:8,color:C.text3,marginTop:2 }}>ni {info.by}{info.at?` · ${new Date(info.at).toLocaleDateString("en-PH",{month:"short",day:"numeric"})}`:""}</div>}
+                  </div>
+                ); })()}
+              </td>}
             </tr>
           );
         })}
@@ -2246,7 +2301,7 @@ export default function App() {
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#fca5a5" }}>-₱{monthRows.reduce((s,r)=>s+(r.discAmt||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#fca5a5" }}>-₱{monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#fde68a",fontSize:13 }}>₱{monthRows.reduce((s,r)=>s+r.net,0).toFixed(2)}</td>
-          {bFilter!==null&&<td colSpan={2}></td>}
+          {bFilter!==null&&<td colSpan={3}></td>}
         </tr>
       </tbody>
     </table>
@@ -3003,6 +3058,102 @@ function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose
                     <div style={{ fontSize:11,color:"#166534" }}>{o.discount_customer_name||"—"} · ID: <b>{o.discount_customer_id||"—"}</b></div>
                   </div>
                 )}
+              </div>
+            ))
+          }
+        </div>
+      </div>
+      {zoomImg && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:4000,padding:20 }} onClick={()=>setZoomImg(null)}>
+          <img src={zoomImg} alt="zoom" style={{ maxWidth:"90vw",maxHeight:"90vh",borderRadius:8 }}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DISCOUNT ID LOG (all Senior/PWD/discount claims — with ID photos) ───────
+function DiscountIdLogModal({ onClose, currentBranch }) {
+  const [branchId, setBranchId] = useState(currentBranch?.id || "all");
+  const [fromDate, setFromDate] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
+  const [toDate, setToDate] = useState(()=>new Date().toISOString().slice(0,10));
+  const [typeFilter, setTypeFilter] = useState("all"); // all | SNR | PWD
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [zoomImg, setZoomImg] = useState(null);
+
+  useEffect(()=>{ load(); }, [branchId, fromDate, toDate, typeFilter]);
+
+  async function load() {
+    setLoading(true);
+    const branchFilter = branchId!=="all" ? `&branch_id=eq.${branchId}` : "";
+    const typeF = typeFilter==="all" ? `&discount_type=in.(SNR,PWD)` : `&discount_type=eq.${typeFilter}`;
+    const data = await sb(`orders?select=*,branches(name)&order_date=gte.${fromDate}&order_date=lte.${toDate}${branchFilter}${typeF}&order=order_date.desc,order_time.desc`);
+    if (data) setOrders(data);
+    setLoading(false);
+  }
+
+  const totalSaved = orders.reduce((s,o)=>s+parseFloat(o.discount_amt||0),0);
+  const missingPhoto = orders.filter(o=>!o.discount_id_photo_url).length;
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3500,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:16,width:"min(720px,95vw)",maxHeight:"92vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",fontFamily:"sans-serif" }}>
+        <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,background:"white",zIndex:10 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+            <div style={{ fontWeight:900,fontSize:17,color:"#1c1917" }}>🪪 Discount ID Log — SNR/PWD</div>
+            <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
+          </div>
+          <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+            <select value={branchId} onChange={e=>setBranchId(e.target.value==="all"?"all":parseInt(e.target.value))} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
+              <option value="all">Lahat ng Branches</option>
+              {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
+              <option value="all">SNR + PWD</option>
+              <option value="SNR">Senior Citizen lang</option>
+              <option value="PWD">PWD lang</option>
+            </select>
+            <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
+            <span style={{ alignSelf:"center",fontSize:12,color:"#78716c" }}>hanggang</span>
+            <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
+          </div>
+        </div>
+
+        <div style={{ padding:"14px 22px" }}>
+          <div style={{ display:"flex",gap:8,marginBottom:14,flexWrap:"wrap" }}>
+            <div style={{ flex:1,minWidth:100,background:"#f0fdf4",borderRadius:10,padding:"10px 12px",border:"1px solid #86efac" }}>
+              <div style={{ fontSize:9,color:"#78716c" }}>Total Claims</div>
+              <div style={{ fontWeight:900,fontSize:18,color:"#16a34a" }}>{orders.length}</div>
+            </div>
+            <div style={{ flex:1,minWidth:100,background:"#fff7ed",borderRadius:10,padding:"10px 12px",border:"1px solid #fed7aa" }}>
+              <div style={{ fontSize:9,color:"#78716c" }}>Total Discount Given</div>
+              <div style={{ fontWeight:900,fontSize:18,color:"#ea580c" }}>₱{totalSaved.toFixed(0)}</div>
+            </div>
+            <div style={{ flex:1,minWidth:100,background:missingPhoto>0?"#fef2f2":"#f0fdf4",borderRadius:10,padding:"10px 12px",border:`1px solid ${missingPhoto>0?"#fecaca":"#86efac"}` }}>
+              <div style={{ fontSize:9,color:"#78716c" }}>Walang Litrato ng ID</div>
+              <div style={{ fontWeight:900,fontSize:18,color:missingPhoto>0?"#dc2626":"#16a34a" }}>{missingPhoto}</div>
+            </div>
+          </div>
+
+          {loading ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8" }}>Loading...</div> :
+            orders.length===0 ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8",fontSize:12 }}>Walang nahanap na SNR/PWD claims sa hanay na ito.</div> :
+            orders.map(o=>(
+              <div key={o.id} style={{ display:"flex",alignItems:"center",gap:12,borderRadius:10,padding:"10px 14px",marginBottom:8,border:`1px solid ${o.discount_id_photo_url?"#e2e8f0":"#fecaca"}`,background:o.discount_id_photo_url?"white":"#fef2f2" }}>
+                {o.discount_id_photo_url ? (
+                  <img src={o.discount_id_photo_url} alt="id" onClick={()=>setZoomImg(o.discount_id_photo_url)} style={{ width:48,height:48,borderRadius:8,objectFit:"cover",cursor:"pointer",border:"1px solid #86efac",flexShrink:0 }}/>
+                ) : (
+                  <div style={{ width:48,height:48,borderRadius:8,background:"#fee2e2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0 }}>⚠️</div>
+                )}
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ fontWeight:800,fontSize:13,color:"#1c1917" }}>{o.discount_customer_name||"(walang pangalan)"} <span style={{ fontSize:10,padding:"1px 7px",borderRadius:20,background:o.discount_type==="SNR"?"#fef9e7":"#eff6ff",color:o.discount_type==="SNR"?"#c8900a":"#2563eb",fontWeight:700 }}>{o.discount_type}</span></div>
+                  <div style={{ fontSize:11,color:"#78716c" }}>ID: <b>{o.discount_customer_id||"—"}</b> · {o.branches?.name} · {o.order_date} {o.order_time?.slice(0,5)}</div>
+                  <div style={{ fontSize:10,color:"#94a3b8" }}>Order #{o.order_num} · {o.cashier_name}</div>
+                </div>
+                <div style={{ textAlign:"right",flexShrink:0 }}>
+                  <div style={{ fontWeight:900,fontSize:14,color:"#16a34a" }}>₱{parseFloat(o.total).toFixed(2)}</div>
+                  <div style={{ fontSize:10,color:"#dc2626" }}>-₱{parseFloat(o.discount_amt||0).toFixed(2)}</div>
+                </div>
               </div>
             ))
           }
