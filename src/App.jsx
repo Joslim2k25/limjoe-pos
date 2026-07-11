@@ -741,10 +741,17 @@ function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" })
                 <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Unit</div>
                 <select value={newMat.unit} onChange={e=>setNewMat(p=>({...p,unit:e.target.value}))} style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}>
                   <option value="pcs">pcs</option>
+                  <option value="g">g (grams)</option>
+                  <option value="kg">kg (kilo)</option>
                   <option value="ml">ml</option>
-                  <option value="g">g</option>
-                  <option value="L">L</option>
-                  <option value="kg">kg</option>
+                  <option value="L">L (liter)</option>
+                  <option value="lbs">lbs (pounds)</option>
+                  <option value="oz">oz (ounce)</option>
+                  <option value="scoop">scoop</option>
+                  <option value="pack">pack</option>
+                  <option value="box">box</option>
+                  <option value="bottle">bottle</option>
+                  <option value="sachet">sachet</option>
                 </select>
               </div>
               <div style={{ flex:1,minWidth:80 }}>
@@ -1890,7 +1897,38 @@ export default function App() {
 
           {adminTab==="zreport"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>🔒 Z Reading — {reportDate}</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Z READING — ${reportDate}<br>Printed: ${nowFull()}</div></div><div class="dv"></div><div class="row big"><span>GROSS</span><span>₱${rSum.gross.toFixed(2)}</span></div><div class="row"><span>EXPENSES</span><span>-₱${rExpTotal.toFixed(2)}</span></div><div class="row big"><span>NET</span><span>₱${rNet.toFixed(2)}</span></div><div class="dv"></div><div class="sec">Top 8 Items</div>${rSum.top8.map(([n,d],i)=>`<div class="row"><span>#${i+1} ${n}</span><span>×${d.qty}=₱${d.sales.toFixed(2)}</span></div>`).join("")}<div class="dv"></div><div class="c big">*** END OF DAY ***</div>`)} style={{ padding:"6px 12px",background:C.accent,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print</button></div></div><div style={SR}><SB label="GROSS" val={`₱${rSum.gross.toFixed(0)}`} color={C.success} big/><SB label="EXPENSES" val={`-₱${rExpTotal.toFixed(0)}`} color={C.danger} big/><SB label="NET" val={`₱${rNet.toFixed(0)}`} color={C.warning} big/></div><div style={SEC}>By Channel</div>{PAYMENT_METHODS.map(p=>{const d=rSum.pmSales[p.key];if(!d?.sales)return null;return(<div key={p.key} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"white",borderRadius:9,marginBottom:6,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><span style={{ fontSize:18 }}>{p.emoji}</span><span style={{ flex:1,fontWeight:700,fontSize:13 }}>{p.label}</span><span style={{ color:C.text3,fontSize:11 }}>{d.count} orders</span><span style={{ color:p.color,fontWeight:900,fontSize:15 }}>₱{d.sales.toFixed(2)}</span></div>);})}<div style={SEC}>🏆 Top 8 Items</div>{rSum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1 }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}</div>)}
 
-          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8 }}><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>{ const [y,m]=reportMonth.split("-"); const from=`${y}-${m}-01`; const lastDay=new Date(parseInt(y),parseInt(m),0).getDate(); const to=`${y}-${m}-${String(lastDay).padStart(2,"0")}`; setExportFrom(from); setExportTo(to); setShowExportModal(true); }} style={{ padding:"6px 14px",background:"#16a34a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>📥 Download Excel</button></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:(
+          {adminTab==="monthly"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>📅 Monthly Report</div><div style={{ display:"flex",gap:8,flexWrap:"wrap" }}><select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}><option value="all">🏪 All Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><button onClick={()=>{ const [y,m]=reportMonth.split("-"); const from=`${y}-${m}-01`; const lastDay=new Date(parseInt(y),parseInt(m),0).getDate(); const to=`${y}-${m}-${String(lastDay).padStart(2,"0")}`; setExportFrom(from); setExportTo(to); setShowExportModal(true); }} style={{ padding:"6px 14px",background:"#16a34a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>📥 Download Excel</button></div></div>{bFilter===null&&<div style={{ background:C.warningBg,borderRadius:10,padding:"10px 14px",marginBottom:14,border:`1px solid ${C.warning}` }}><div style={{ fontSize:11,color:C.warning,fontWeight:700 }}>ℹ️ Pumili ng specific branch para makita ang Cash on Hand</div></div>}
+          {bFilter===null && (()=>{
+            const [y,m]=reportMonth.split("-"); const daysInMonth=new Date(parseInt(y),parseInt(m),0).getDate();
+            const branchTotals = BRANCHES.map(b=>{
+              let gross=0, exp=0, txns=0;
+              for(let d=1; d<=daysInMonth; d++){
+                const dk=`${reportMonth}-${String(d).padStart(2,"0")}`;
+                const ords=getOrders(dk,b.id); const exps=getExps(dk,b.id);
+                gross+=ords.reduce((s,o)=>s+o.total,0); exp+=exps.reduce((s,e)=>s+parseFloat(e.amount),0); txns+=ords.length;
+              }
+              return { b, gross, exp, net:gross-exp, txns };
+            });
+            return (
+              <div style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                  <div style={{ fontWeight:800,fontSize:13,color:C.text }}>🏪 Monthly Sales by Branch — {reportMonth}</div>
+                  <div style={{ fontSize:10,color:C.text3 }}>I-click para tingnan ang detalye ng branch</div>
+                </div>
+                {branchTotals.map(({b,gross,exp,net,txns})=>(
+                  <div key={b.id} onClick={()=>setSelectedBranch(String(b.id))} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 10px",marginBottom:6,borderRadius:8,background:C.bg3,cursor:"pointer" }}>
+                    <div style={{ fontWeight:700,fontSize:12,color:C.text }}>{b.name}</div>
+                    <div style={{ display:"flex",gap:16,fontSize:11 }}>
+                      <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>Gross</div><div style={{ fontWeight:700,color:C.success }}>₱{gross.toFixed(0)}</div></div>
+                      <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>Expenses</div><div style={{ fontWeight:700,color:C.danger }}>₱{exp.toFixed(0)}</div></div>
+                      <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>NET</div><div style={{ fontWeight:700,color:C.warning }}>₱{net.toFixed(0)}</div></div>
+                      <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>Txns</div><div style={{ fontWeight:700,color:C.info }}>{txns}</div></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:(
   <div style={{ overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
     <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800 }}>
       <thead>
@@ -2232,11 +2270,25 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
 
   async function loadData() {
     setLoading(true);
-    const [mats, dels] = await Promise.all([
+    const [mats, dels, stockRows] = await Promise.all([
       sb("raw_materials?select=id,name,unit&order=name.asc"),
       sb(`deliveries?branch_id=eq.${currentBranch.id}&order=created_at.desc&limit=20&select=*,raw_materials(name,unit)`),
+      sb(`branch_stock?select=material_id&branch_id=eq.${currentBranch.id}`),
     ]);
-    if (mats) setMaterials(mats);
+    if (mats) {
+      // De-duplicate materials with the same name (data has legacy duplicate rows).
+      // Prefer whichever id is the one actually tracked in this branch's branch_stock;
+      // otherwise just keep the first occurrence.
+      const trackedIds = new Set((stockRows||[]).map(r=>r.material_id));
+      const byName = new Map();
+      for (const m of mats) {
+        const key = m.name.trim().toLowerCase();
+        const existing = byName.get(key);
+        if (!existing) { byName.set(key, m); continue; }
+        if (trackedIds.has(m.id) && !trackedIds.has(existing.id)) byName.set(key, m);
+      }
+      setMaterials([...byName.values()].sort((a,b)=>a.name.localeCompare(b.name)));
+    }
     if (dels) setRecentDeliveries(dels);
     setLoading(false);
   }
