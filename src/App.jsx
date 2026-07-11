@@ -706,13 +706,13 @@ function InventoryModal({ onClose, toast, canDelete=true }) {
             {lowCount>0&&<div style={{ fontSize:11,color:C.danger,fontWeight:700 }}>⚠️ {lowCount} item(s) na mababa ang stock!</div>}
           </div>
           <div style={{ display:"flex",gap:8 }}>
-            <button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",background:showAddMat?C.dangerBg:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Material"}</button>
+            {canDelete&&<button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",background:showAddMat?C.dangerBg:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Material"}</button>}
             <button onClick={onClose} style={{ border:"none",background:C.bg3,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:C.text3 }}>✕</button>
           </div>
         </div>
 
         {/* Add Material Form */}
-        {showAddMat&&(
+        {canDelete&&showAddMat&&(
           <div style={{ padding:"14px 22px",background:C.warningBg,borderBottom:`1px solid #fed7aa` }}>
             <div style={{ fontWeight:700,fontSize:12,color:C.warning,marginBottom:10 }}>NEW RAW MATERIAL</div>
             <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
@@ -794,7 +794,7 @@ function InventoryModal({ onClose, toast, canDelete=true }) {
                         <div style={{ fontWeight:900,fontSize:16,color:isLow?C.danger:C.success }}>{mat.stock_qty}</div>
                         <div style={{ fontSize:10,color:C.text3 }}>{mat.unit}</div>
                       </div>
-                      <button onClick={()=>{ setEditId(mat.id); setEditQty(mat.stock_qty); }} style={{ padding:"5px 11px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>Adjust</button>
+                      {canDelete&&<button onClick={()=>{ setEditId(mat.id); setEditQty(mat.stock_qty); }} style={{ padding:"5px 11px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>Adjust</button>}
                     </div>
                   )}
                 </div>
@@ -842,8 +842,8 @@ export default function App() {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showProductEditor, setShowProductEditor] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
-  const [showBranchStock, setShowBranchStock] = useState(false);
   const [showDelivery, setShowDelivery] = useState(false);
+  const [showBranchStock, setShowBranchStock] = useState(false);
 
   // Auth
   const [pinInput, setPinInput] = useState("");
@@ -1247,8 +1247,8 @@ export default function App() {
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
       {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2}/>}
-{showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
+      {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
     </>
   );
 
@@ -1352,6 +1352,9 @@ export default function App() {
           <button onClick={()=>setShowDelivery(true)} style={{ flex:1,padding:"12px",background:"white",border:"2px solid #16a34a",borderRadius:12,color:"#16a34a",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
   <span style={{ fontSize:20 }}>🚚</span><span>Log Delivery</span>
 </button>
+          <button onClick={()=>setShowBranchStock(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+            <span style={{ fontSize:20 }}>📊</span><span>Branch Stock</span>
+          </button>
           {canAdmin&&<button onClick={()=>setShowBulkUpload(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📤</span><span>Bulk Upload</span><span style={{ fontSize:9,opacity:0.7 }}>Excel</span>
           </button>}
@@ -1791,6 +1794,11 @@ export default function App() {
                   <div style={{ fontSize:32 }}>📤</div>
                   <div style={{ fontWeight:700,fontSize:14,color:C.info,marginTop:8 }}>Upload Materials & Recipes</div>
                   <div style={{ fontSize:11,color:C.text3,marginTop:4 }}>Excel upload para sa raw materials at recipes</div>
+                </div>
+                <div onClick={()=>setShowBranchStock(true)} style={{ background:"white",borderRadius:12,padding:"18px",border:`2px solid #16a34a`,cursor:"pointer",textAlign:"center",gridColumn:"1 / -1" }}>
+                  <div style={{ fontSize:32 }}>📊</div>
+                  <div style={{ fontWeight:700,fontSize:14,color:"#16a34a",marginTop:8 }}>Branch Stock — Lahat ng Branches</div>
+                  <div style={{ fontSize:11,color:C.text3,marginTop:4 }}>Tingnan ang current stock ng bawat branch, side by side</div>
                 </div>
               </div>
             </div>
