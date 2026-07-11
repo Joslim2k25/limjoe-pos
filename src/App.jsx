@@ -392,6 +392,8 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
   const [searchProd, setSearchProd] = useState("");
   const [newProd, setNewProd] = useState({ name:"", category: categories[0]?.key||"", price:"", price_medium:"", price_large:"", price_online_medium:"", price_online_large:"", description:"", is_available: true });
   const isAdmin = ROLE_LEVEL[userRole] >= 3;
+  const isPriceEditable = ROLE_LEVEL[userRole] >= 3; // admin/owner ONLY — cashier AND manager cannot change prices
+  const isPriceVisible = ROLE_LEVEL[userRole] >= 2; // cashier cannot even see the price section here
 
   useEffect(()=>{ loadProducts(); }, []);
 
@@ -509,28 +511,39 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
                             {categories.map(c=><option key={c.key} value={c.key}>{c.key}</option>)}
                           </select>
                         </div>
-                        {/* Price fields — Medium, Large, Online Med, Online Large */}
+                        {/* Price fields — Medium, Large, Online Med, Online Large — hidden entirely from cashier */}
+                        {isPriceVisible && (
                         <div style={{ background:C.bg3,borderRadius:8,padding:"8px 10px",marginBottom:8 }}>
-                          <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:6 }}>💰 PRICES</div>
-                          <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:6 }}>
-                            <div style={{ flex:1,minWidth:80 }}>
-                              <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Medium (₱)</div>
-                              <input defaultValue={p.price_medium||p.price||""} onChange={e=>setEditData(d=>({...d,price_medium:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                          <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:6 }}>💰 PRICES {!isPriceEditable&&<span style={{ color:C.danger }}>(Admin/Owner lang ang makapagbago)</span>}</div>
+                          {isPriceEditable ? (
+                            <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:6 }}>
+                              <div style={{ flex:1,minWidth:80 }}>
+                                <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Medium (₱)</div>
+                                <input defaultValue={p.price_medium||p.price||""} onChange={e=>setEditData(d=>({...d,price_medium:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                              </div>
+                              <div style={{ flex:1,minWidth:80 }}>
+                                <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Large (₱)</div>
+                                <input defaultValue={p.price_large||p.price||""} onChange={e=>setEditData(d=>({...d,price_large:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                              </div>
+                              <div style={{ flex:1,minWidth:80 }}>
+                                <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Online Med (₱)</div>
+                                <input defaultValue={p.price_online_medium||""} onChange={e=>setEditData(d=>({...d,price_online_medium:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                              </div>
+                              <div style={{ flex:1,minWidth:80 }}>
+                                <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Online Large (₱)</div>
+                                <input defaultValue={p.price_online_large||""} onChange={e=>setEditData(d=>({...d,price_online_large:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                              </div>
                             </div>
-                            <div style={{ flex:1,minWidth:80 }}>
-                              <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Large (₱)</div>
-                              <input defaultValue={p.price_large||p.price||""} onChange={e=>setEditData(d=>({...d,price_large:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
+                          ) : (
+                            <div style={{ display:"flex",gap:14,flexWrap:"wrap" }}>
+                              <div><div style={{ fontSize:9,color:C.text3 }}>Medium</div><div style={{ fontWeight:700,fontSize:13,color:C.text }}>₱{p.price_medium||p.price||0}</div></div>
+                              <div><div style={{ fontSize:9,color:C.text3 }}>Large</div><div style={{ fontWeight:700,fontSize:13,color:C.text }}>₱{p.price_large||0}</div></div>
+                              <div><div style={{ fontSize:9,color:C.text3 }}>Online Med</div><div style={{ fontWeight:700,fontSize:13,color:C.text }}>₱{p.price_online_medium||0}</div></div>
+                              <div><div style={{ fontSize:9,color:C.text3 }}>Online Large</div><div style={{ fontWeight:700,fontSize:13,color:C.text }}>₱{p.price_online_large||0}</div></div>
                             </div>
-                            <div style={{ flex:1,minWidth:80 }}>
-                              <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Online Med (₱)</div>
-                              <input defaultValue={p.price_online_medium||""} onChange={e=>setEditData(d=>({...d,price_online_medium:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
-                            </div>
-                            <div style={{ flex:1,minWidth:80 }}>
-                              <div style={{ fontSize:9,color:C.text3,marginBottom:2 }}>Online Large (₱)</div>
-                              <input defaultValue={p.price_online_large||""} onChange={e=>setEditData(d=>({...d,price_online_large:parseFloat(e.target.value)||null}))} type="number" placeholder="₱" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
-                            </div>
-                          </div>
+                          )}
                         </div>
+                        )}
                         <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
                           <input defaultValue={p.description||""} onChange={e=>setEditData(d=>({...d,description:e.target.value}))} placeholder="Description (optional)" style={{ ...InputStyle,flex:1 }}/>
                         </div>
@@ -550,7 +563,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
                           <div style={{ fontWeight:700,fontSize:13,color:p.is_available?C.text:C.text3 }}>{p.name} {!p.is_available&&<span style={{ fontSize:10,color:C.danger }}>(hidden)</span>}</div>
                           <div style={{ fontSize:11,color:C.text3 }}>{p.description||""}</div>
                         </div>
-                        <div style={{ fontWeight:900,fontSize:15,color:C.success }}>₱{parseFloat(p.price).toFixed(2)}</div>
+                        {isPriceVisible && <div style={{ fontWeight:900,fontSize:15,color:C.success }}>₱{parseFloat(p.price).toFixed(2)}</div>}
                         <button onClick={()=>{ setEditId(p.id); setEditData({ name:p.name, category:p.category, price:p.price, description:p.description, is_available:p.is_available }); }} style={{ padding:"5px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>Edit</button>
                         {isAdmin&&<button onClick={()=>deleteProduct(p.id, p.name)} style={{ padding:"5px 10px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:6,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Del</button>}
                       </div>
@@ -567,12 +580,12 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
 }
 
 // ─── INVENTORY MODAL ─────────────────────────────────────────────────────────
-function InventoryModal({ onClose, toast, canDelete=true }) {
+function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" }) {
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState(null);
   const [editQty, setEditQty] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(initialFilter);
   const [searchMat, setSearchMat] = useState("");
   const [showAddMat, setShowAddMat] = useState(false);
   const [newMat, setNewMat] = useState({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
@@ -581,7 +594,7 @@ function InventoryModal({ onClose, toast, canDelete=true }) {
 
   async function loadMaterials() {
     setLoading(true);
-    const data = await sb("raw_materials?select=*&order=sort_order.asc,name.asc");
+    const data = await sb("raw_materials?select=*&order=name.asc");
     if (data) setMaterials(data);
     setLoading(false);
   }
@@ -842,6 +855,8 @@ export default function App() {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showProductEditor, setShowProductEditor] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
+  const [inventoryInitialFilter, setInventoryInitialFilter] = useState("all");
+  function openInventory(filter="all") { setInventoryInitialFilter(filter); setShowInventory(true); }
   const [showDelivery, setShowDelivery] = useState(false);
   const [showBranchStock, setShowBranchStock] = useState(false);
 
@@ -1124,11 +1139,17 @@ export default function App() {
   const clearDeposit = () => { setDepositResult(null); setDepositAmt(""); setDepositFrom(todayStr()); setDepositTo(todayStr()); };
   const bFilter = selectedBranch==="all"?null:parseInt(selectedBranch);
 
-  // ── INVENTORY LOW STOCK BADGE ─────────────────────────────────────────────
+  // ── INVENTORY LOW STOCK BADGE (per-branch, from branch_stock — NOT the old global raw_materials) ──
   const [lowStockCount, setLowStockCount] = useState(0);
   useEffect(()=>{
-    (async()=>{ const mats=await sb("raw_materials?select=id,stock_qty,reorder_pt"); if(mats) setLowStockCount(mats.filter(m=>m.stock_qty<=m.reorder_pt).length); })();
-  },[showInventory]);
+    (async()=>{
+      // Cashier context: always their own branch. Admin context: the selected branch,
+      // or ALL branches summed (each branch's low item counted separately, never merged into one).
+      const branchFilter = env==="cashier" ? `&branch_id=eq.${currentBranch.id}` : (bFilter ? `&branch_id=eq.${bFilter}` : "");
+      const rows = await sb(`branch_stock?select=stock_qty,reorder_pt${branchFilter}`);
+      if (rows) setLowStockCount(rows.filter(r=>r.stock_qty<=r.reorder_pt).length);
+    })();
+  },[showInventory, env, bFilter, currentBranch?.id]);
 
   useEffect(()=>{
     if(adminTab==="audit"){
@@ -1246,7 +1267,7 @@ export default function App() {
       )}
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
-      {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2}/>}
+      {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2} initialFilter={inventoryInitialFilter}/>}
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
     </>
@@ -1345,7 +1366,7 @@ export default function App() {
           <button onClick={()=>setShowProductEditor(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>🛍️</span><span>Products</span><span style={{ fontSize:9,opacity:0.7 }}>{canAdmin?"Add/Edit/Delete":"Edit only"}</span>
           </button>
-          <button onClick={()=>setShowInventory(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+          <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📦</span><span>Inventory</span>
                {lowStockCount>0&&<span style={{ fontSize:9,background:C.danger,color:"white",padding:"1px 6px",borderRadius:20 }}>⚠️ {lowStockCount} low</span>}
           </button>
@@ -1361,7 +1382,7 @@ export default function App() {
         </div>
 
         {currentUser?.role==="manager"&&(<button onClick={()=>setPosScreen("monthly")} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12 }}>📅 Monthly Report — {currentBranch.name}</button>)}
-        <button onClick={()=>setShowInventory(true)} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+        <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
           📦 Inventory {lowStockCount>0&&<span style={{ background:C.danger,color:"white",borderRadius:20,padding:"1px 8px",fontSize:12 }}>{lowStockCount} Low Stock!</span>}
         </button>
 
@@ -1490,7 +1511,7 @@ export default function App() {
           <button onClick={()=>setPosScreen("main")} style={{ padding:"5px 9px",background:C.bg3,border:`1px solid ${C.border}`,borderRadius:6,color:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>←</button>
           <div style={{ flex:1 }}><div style={{ fontSize:13,fontWeight:900,color:C.primary }}>LIMJOE · {currentBranch.name}</div><div style={{ fontSize:9,color:C.text3 }}>{currentUser?.emoji} {currentUser?.name}</div></div>
           {cartCount>0&&<div style={{ background:C.primary,color:"white",borderRadius:20,padding:"3px 10px",fontWeight:900,fontSize:12 }}>{cartCount} items</div>}
-          <button onClick={()=>setShowInventory(true)} style={{ padding:"5px 9px",background:lowStockCount>0?C.dangerBg:C.bg3,border:`1px solid ${lowStockCount>0?C.danger:C.border}`,borderRadius:6,color:lowStockCount>0?C.danger:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>📦{lowStockCount>0?` ${lowStockCount}!`:""}</button>
+          <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ padding:"5px 9px",background:lowStockCount>0?C.dangerBg:C.bg3,border:`1px solid ${lowStockCount>0?C.danger:C.border}`,borderRadius:6,color:lowStockCount>0?C.danger:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>📦{lowStockCount>0?` ${lowStockCount}!`:""}</button>
         </div>
 
         <div style={{ background:"white",borderBottom:`1px solid ${C.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",flexShrink:0 }}>
@@ -1770,12 +1791,12 @@ export default function App() {
                 <div style={PT}>📦 Inventory Management</div>
                 <div style={{ display:"flex",gap:8 }}>
                   <button onClick={()=>setShowBulkUpload(true)} style={{ padding:"8px 14px",background:C.info,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>📤 Bulk Upload</button>
-                  <button onClick={()=>setShowInventory(true)} style={{ padding:"8px 14px",background:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>📦 View Inventory</button>
+                  <button onClick={()=>openInventory("all")} style={{ padding:"8px 14px",background:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>📦 View Inventory</button>
                 </div>
               </div>
               {lowStockCount>0&&<div style={{ background:C.dangerBg,borderRadius:10,padding:"12px 14px",marginBottom:14,border:`1px solid ${C.danger}` }}>
                 <div style={{ fontSize:13,fontWeight:800,color:C.danger }}>⚠️ {lowStockCount} item(s) mababa na ang stock!</div>
-                <button onClick={()=>setShowInventory(true)} style={{ marginTop:8,padding:"6px 14px",background:C.danger,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>Tingnan ang Inventory →</button>
+                <button onClick={()=>setShowBranchStock(true)} style={{ marginTop:8,padding:"6px 14px",background:C.danger,border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>Tingnan ang Branch Stock →</button>
               </div>}
               <div style={{ background:C.infoBg,borderRadius:10,padding:"12px 14px",marginBottom:14,border:`1px solid ${C.info}` }}>
                 <div style={{ fontSize:12,fontWeight:700,color:C.info }}>ℹ️ Paano gumagana ang inventory</div>
@@ -1785,7 +1806,7 @@ export default function App() {
                 </div>
               </div>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
-                <div onClick={()=>setShowInventory(true)} style={{ background:"white",borderRadius:12,padding:"18px",border:`2px solid ${C.warning}`,cursor:"pointer",textAlign:"center" }}>
+                <div onClick={()=>openInventory("all")} style={{ background:"white",borderRadius:12,padding:"18px",border:`2px solid ${C.warning}`,cursor:"pointer",textAlign:"center" }}>
                   <div style={{ fontSize:32 }}>📦</div>
                   <div style={{ fontWeight:700,fontSize:14,color:C.warning,marginTop:8 }}>View & Adjust Stock</div>
                   <div style={{ fontSize:11,color:C.text3,marginTop:4 }}>Manual stock adjustment at low stock alerts</div>
@@ -1809,6 +1830,32 @@ export default function App() {
             <div>
               <div style={PT}>📊 Dashboard — {todayStr()}</div>
               <div style={SR}><SB label="Gross" val={`₱${todaySum.gross.toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${todayExp.toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${(todaySum.gross-todayExp).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={todaySum.txns} color={C.info}/></div>
+
+              {bFilter===null && (
+                <div style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
+                    <div style={{ fontWeight:800,fontSize:13,color:C.text }}>🏪 Sales by Branch — {todayStr()}</div>
+                    <div style={{ fontSize:10,color:C.text3 }}>Piliin ang branch sa taas para makita ang detalye</div>
+                  </div>
+                  {BRANCHES.map(b=>{
+                    const bOrders=getOrders(todayStr(),b.id);
+                    const bExps=getExps(todayStr(),b.id).reduce((s,e)=>s+parseFloat(e.amount),0);
+                    const bSum=calcSum(bOrders);
+                    const bNet=bSum.gross-bExps;
+                    return (
+                      <div key={b.id} onClick={()=>setSelectedBranch(String(b.id))} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 10px",marginBottom:6,borderRadius:8,background:C.bg3,cursor:"pointer" }}>
+                        <div style={{ fontWeight:700,fontSize:12,color:C.text }}>{b.name}</div>
+                        <div style={{ display:"flex",gap:16,fontSize:11 }}>
+                          <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>Gross</div><div style={{ fontWeight:700,color:C.success }}>₱{bSum.gross.toFixed(0)}</div></div>
+                          <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>Expenses</div><div style={{ fontWeight:700,color:C.danger }}>₱{bExps.toFixed(0)}</div></div>
+                          <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>NET</div><div style={{ fontWeight:700,color:C.warning }}>₱{bNet.toFixed(0)}</div></div>
+                          <div style={{ textAlign:"right" }}><div style={{ color:C.text3,fontSize:9 }}>Txns</div><div style={{ fontWeight:700,color:C.info }}>{bSum.txns}</div></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {lowStockCount>0&&<div style={{ background:C.dangerBg,borderRadius:10,padding:"10px 14px",marginBottom:12,border:`1px solid ${C.danger}`,display:"flex",justifyContent:"space-between",alignItems:"center" }}><div style={{ fontSize:12,color:C.danger,fontWeight:700 }}>⚠️ {lowStockCount} raw materials na mababa ang stock!</div><button onClick={()=>setAdminTab("inventory")} style={{ padding:"5px 12px",background:C.danger,border:"none",borderRadius:6,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Tingnan →</button></div>}
 
               <div style={SEC}>🍋 LEMON USAGE — {reportDate}</div>
