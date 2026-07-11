@@ -1572,24 +1572,24 @@ export default function App() {
         <button onClick={()=>setPosScreen("pos")} style={{ width:"100%",padding:"20px",background:C.primary,border:"none",borderRadius:14,color:"white",fontWeight:900,fontSize:18,cursor:"pointer",marginBottom:12,boxShadow:`0 2px 8px ${C.primary}44` }}>🧾 START PUNCHING</button>
 
         {/* Management buttons for cashier+ */}
-        <div style={{ display:"flex",gap:8,marginBottom:12 }}>
-          <button onClick={()=>setShowProductEditor(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+        <div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}>
+          <button onClick={()=>setShowProductEditor(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>🛍️</span><span>Products</span><span style={{ fontSize:9,opacity:0.7 }}>{canAdmin?"Add/Edit/Delete":"Edit only"}</span>
           </button>
-          <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+          <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📦</span><span>Inventory</span>
                {lowStockCount>0&&<span style={{ fontSize:9,background:C.danger,color:"white",padding:"1px 6px",borderRadius:20 }}>⚠️ {lowStockCount} low</span>}
           </button>
-          <button onClick={()=>setShowDelivery(true)} style={{ flex:1,padding:"12px",background:"white",border:"2px solid #16a34a",borderRadius:12,color:"#16a34a",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+          <button onClick={()=>setShowDelivery(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:"2px solid #16a34a",borderRadius:12,color:"#16a34a",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
   <span style={{ fontSize:20 }}>🚚</span><span>Log Delivery</span>
 </button>
-          <button onClick={()=>setShowSpoilage(true)} style={{ flex:1,padding:"12px",background:"white",border:"2px solid #dc2626",borderRadius:12,color:"#dc2626",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+          <button onClick={()=>setShowSpoilage(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:"2px solid #dc2626",borderRadius:12,color:"#dc2626",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>🗑️</span><span>Report Spoilage</span>
           </button>
-          <button onClick={()=>setShowBranchStock(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+          <button onClick={()=>setShowBranchStock(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📊</span><span>Branch Stock</span>
           </button>
-          {canAdmin&&<button onClick={()=>setShowBulkUpload(true)} style={{ flex:1,padding:"12px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+          {canAdmin&&<button onClick={()=>setShowBulkUpload(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📤</span><span>Bulk Upload</span><span style={{ fontSize:9,opacity:0.7 }}>Excel</span>
           </button>}
         </div>
