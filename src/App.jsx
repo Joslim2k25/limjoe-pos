@@ -514,6 +514,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
   async function saveEdit(id) {
     // Set price to the medium price for backward compatibility
     if (editData.price_medium) editData.price = editData.price_medium;
+    if (typeof editData.name === "string") editData.name = editData.name.trim();
     const res = await sb(`products?id=eq.${id}`, "PATCH", editData, { "Prefer":"return=representation" });
     if (lastSbError) { toast("Hindi na-save: " + lastSbError, "err"); return; }
     toast("✅ Product updated!"); setEditId(null); loadProducts(); onReloadProducts?.();
@@ -536,6 +537,12 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
 
   const filteredProds = searchProd.trim() ? products.filter(p=>p.name.toLowerCase().includes(searchProd.toLowerCase())||p.category.toLowerCase().includes(searchProd.toLowerCase())) : products;
   const grouped = filteredProds.reduce((acc, p) => { if (!acc[p.category]) acc[p.category]=[]; acc[p.category].push(p); return acc; }, {});
+  // Flag products that share the same trimmed/lowercased name — usually caused by
+  // re-uploading via Excel with a trailing/leading space, creating a lookalike duplicate.
+  const dupeCounts = {};
+  products.forEach(p => { const k = p.name.trim().toLowerCase().replace(/\s+/g," "); dupeCounts[k] = (dupeCounts[k]||0)+1; });
+  function isDupe(p) { return dupeCounts[p.name.trim().toLowerCase().replace(/\s+/g," ")] > 1; }
+  function hasExtraSpace(p) { return p.name !== p.name.trim() || /\s{2,}/.test(p.name); }
 
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -667,7 +674,11 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
                     ) : (
                       <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                         <div style={{ flex:1 }}>
-                          <div style={{ fontWeight:700,fontSize:13,color:p.is_available?C.text:C.text3 }}>{p.name} {!p.is_available&&<span style={{ fontSize:10,color:C.danger }}>(hidden)</span>}</div>
+                          <div style={{ fontWeight:700,fontSize:13,color:p.is_available?C.text:C.text3 }}>
+                            {p.name} {!p.is_available&&<span style={{ fontSize:10,color:C.danger }}>(hidden)</span>}
+                            {isDupe(p)&&<span style={{ fontSize:9,color:"#dc2626",background:"#fef2f2",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:6 }}>⚠️ posibleng duplicate</span>}
+                            {hasExtraSpace(p)&&<span style={{ fontSize:9,color:"#d97706",background:"#fffbeb",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:6 }}>may extra space</span>}
+                          </div>
                           <div style={{ fontSize:11,color:C.text3 }}>{p.description||""}</div>
                         </div>
                         {isPriceVisible && <div style={{ fontWeight:900,fontSize:15,color:C.success }}>₱{parseFloat(p.price).toFixed(2)}</div>}
