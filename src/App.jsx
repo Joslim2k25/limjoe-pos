@@ -712,8 +712,9 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
     setLoading(false);
   }
 
-  // Row is editable if: Admin/Owner (any branch), or a lower role editing their own current branch.
-  function canAdjust(row) { return isAdminOwner || row.branch_id === currentBranch.id; }
+  // Only Admin/Owner may directly adjust stock. Everyone else logs Deliveries (adds stock)
+  // or Spoilage (removes stock) through their own dedicated, audited flows instead.
+  function canAdjust(row) { return isAdminOwner; }
 
   async function addMaterial() {
     if (!newMat.name.trim()) { toast("Lagyan ng material name!", "err"); return; }
