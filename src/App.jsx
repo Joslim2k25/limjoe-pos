@@ -2925,65 +2925,90 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const isManager = ROLE_LEVEL[userRole] >= 2;
   const isAdminOwner = ROLE_LEVEL[userRole] >= 3; // Owner/Admin only — matches InventoryModal's edit gate
   const [branchId, setBranchId] = useState(currentBranch?.id || BRANCHES[0].id);
-  const [fromDate, setFromDate] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
-  const [toDate, setToDate] = useState(()=>new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
-  const [editId, setEditId] = useState(null); // branch_stock.id being adjusted
-  const [editQty, setEditQty] = useState("");
+  const [searchMat, setSearchMat] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const [editVals, setEditVals] = useState({}); // stockId -> new qty string
   const [editReason, setEditReason] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  useEffect(()=>{ loadReport(); }, [branchId, fromDate, toDate]);
+  useEffect(()=>{ loadReport(); }, [branchId]);
 
   async function loadReport() {
     setLoading(true);
-    const [stockRows, delivRows, spoilRows] = await Promise.all([
+    const startISO = `${todayStr()}T00:00:00+08:00`;
+    const [stockRows, logRows] = await Promise.all([
       sb(`branch_stock?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)&branch_id=eq.${branchId}`),
-      sb(`deliveries?select=material_id,qty&branch_id=eq.${branchId}&delivery_date=gte.${fromDate}&delivery_date=lte.${toDate}`),
-      sb(`spoilage?select=material_id,qty&branch_id=eq.${branchId}&created_at=gte.${fromDate}&created_at=lte.${toDate}T23:59:59`),
+      sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}`),
     ]);
-    const delivMap = {}; (delivRows||[]).forEach(d=>{ delivMap[d.material_id]=(delivMap[d.material_id]||0)+parseFloat(d.qty); });
-    const spoilMap = {}; (spoilRows||[]).forEach(s=>{ spoilMap[s.material_id]=(spoilMap[s.material_id]||0)+parseFloat(s.qty); });
+    // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage, Adjustment (manual/other).
+    const agg = {};
+    (logRows||[]).forEach(l=>{
+      const id = l.material_id;
+      if (!agg[id]) agg[id] = { used:0, delivered:0, spoiled:0, adjustment:0 };
+      const note = l.note || "";
+      const chg = parseFloat(l.change_qty) || 0;
+      if (/auto-deduct/i.test(note)) agg[id].used += Math.abs(chg);
+      else if (/delivery received/i.test(note)) agg[id].delivered += chg;
+      else if (/spoilage\/waste/i.test(note)) agg[id].spoiled += Math.abs(chg);
+      else agg[id].adjustment += chg;
+    });
     const built = (stockRows||[]).map(r=>{
-      const delivered = delivMap[r.material_id]||0;
-      const spoiled = spoilMap[r.material_id]||0;
+      const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0, adjustment:0 };
       const cost = r.raw_materials?.cost_per_unit || 0;
+      const ending = parseFloat(r.stock_qty);
+      const beginning = ending - a.delivered + a.used + a.spoiled - a.adjustment;
       return {
         stockId: r.id,
         materialId: r.material_id,
         name: r.raw_materials?.name || "?",
         unit: r.raw_materials?.unit || "",
         category: r.raw_materials?.category || "ingredient",
-        current: parseFloat(r.stock_qty),
+        beginning, delivered: a.delivered, used: a.used, spoiled: a.spoiled, adjustment: a.adjustment,
+        ending,
         reorderPt: parseFloat(r.reorder_pt),
-        delivered, spoiled,
-        spoilCost: spoiled*cost,
-        isLow: parseFloat(r.stock_qty) <= parseFloat(r.reorder_pt),
+        spoilCost: a.spoiled*cost,
+        isLow: ending <= parseFloat(r.reorder_pt),
       };
     }).sort((a,b)=>a.name.localeCompare(b.name));
     setRows(built);
     setLoading(false);
   }
 
-  async function saveAdjust(r) {
-    const newQty = parseFloat(editQty);
-    if (isNaN(newQty) || newQty < 0) { toast("Invalid qty!", "err"); return; }
-    const oldQty = r.current;
-    const delta = newQty - oldQty;
-    await sb(`branch_stock?id=eq.${r.stockId}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
-    if (lastSbError) { toast("Error: "+lastSbError, "err"); return; }
+  function startEdit() { const init={}; rows.forEach(r=>{ init[r.stockId]=String(r.ending); }); setEditVals(init); setEditMode(true); setEditReason(""); }
+  function cancelEdit() { setEditMode(false); setEditVals({}); setEditReason(""); }
+
+  async function saveAllEdits() {
     const branchName = BRANCHES.find(b=>b.id===branchId)?.name || `Branch ${branchId}`;
     const reasonTxt = editReason.trim() ? ` — ${editReason.trim()}` : "";
-    await sb("inventory_logs", "POST", [{
-      material_id: r.materialId, order_id: null, change_qty: delta,
-      note: `Branch ${branchId} - Manual stock adjustment: ${delta>=0?"+":""}${delta}${reasonTxt}`,
-    }]);
-    auditLog('INVENTORY_ADJUST', `${r.name} adjusted ${delta>=0?"+":""}${delta} ${r.unit} (${oldQty} → ${newQty})${reasonTxt} — via Inventory Summary Report`, currentUser, branchId, branchName);
-    toast("✅ Stock updated!"); setEditId(null); setEditReason(""); loadReport();
+    const changed = rows.filter(r => {
+      const v = parseFloat(editVals[r.stockId]);
+      return !isNaN(v) && v >= 0 && v !== r.ending;
+    });
+    if (changed.length === 0) { toast("Walang binago.", "err"); setEditMode(false); return; }
+    setSaving(true);
+    for (const r of changed) {
+      const newQty = parseFloat(editVals[r.stockId]);
+      const delta = newQty - r.ending;
+      await sb(`branch_stock?id=eq.${r.stockId}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
+      if (!lastSbError) {
+        await sb("inventory_logs", "POST", [{
+          material_id: r.materialId, order_id: null, change_qty: delta,
+          note: `Branch ${branchId} - Manual stock adjustment: ${delta>=0?"+":""}${delta}${reasonTxt}`,
+        }]);
+        auditLog('INVENTORY_ADJUST', `${r.name} adjusted ${delta>=0?"+":""}${delta} ${r.unit} (${r.ending} → ${newQty})${reasonTxt} — via Inventory Summary Report`, currentUser, branchId, branchName);
+      }
+    }
+    setSaving(false);
+    toast(`✅ ${changed.length} item(s) na-update!`);
+    setEditMode(false); setEditVals({}); setEditReason("");
+    loadReport();
   }
 
-  const filtered = filter==="all" ? rows : filter==="low" ? rows.filter(r=>r.isLow) : filter==="spoiled" ? rows.filter(r=>r.spoiled>0) : rows;
+  const baseFiltered = filter==="all" ? rows : filter==="low" ? rows.filter(r=>r.isLow) : filter==="spoiled" ? rows.filter(r=>r.spoiled>0) : rows;
+  const filtered = searchMat.trim() ? baseFiltered.filter(r=>r.name.toLowerCase().includes(searchMat.toLowerCase())) : baseFiltered;
   const totalSpoilCost = rows.reduce((s,r)=>s+r.spoilCost,0);
   const totalSpoiledItems = rows.filter(r=>r.spoiled>0).length;
   const lowCount = rows.filter(r=>r.isLow).length;
@@ -2991,20 +3016,35 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
 
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{ background:"white",borderRadius:16,width:"min(760px,95vw)",maxHeight:"92vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
+      <div style={{ background:"white",borderRadius:16,width:"min(860px,95vw)",maxHeight:"92vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
         <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,background:"white",zIndex:10 }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-            <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>📋 Inventory Summary Report</div>
+            <div>
+              <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>📋 Inventory Summary Report</div>
+              <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>Kasalukuyang araw — {todayStr()}</div>
+            </div>
             <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
           </div>
-          <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-            <select value={branchId} onChange={e=>setBranchId(parseInt(e.target.value))} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
+          <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
+            <select value={branchId} onChange={e=>{ setBranchId(parseInt(e.target.value)); cancelEdit(); }} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
               {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
-            <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
-            <span style={{ alignSelf:"center",fontSize:12,color:"#78716c" }}>hanggang</span>
-            <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
+            <div style={{ position:"relative",flex:1,minWidth:160 }}>
+              <span style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8" }}>🔍</span>
+              <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang material..." style={{ width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
+            </div>
+            {isAdminOwner && !editMode && (
+              <button onClick={startEdit} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:"#2563eb",color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>✏️ Edit Mode</button>
+            )}
           </div>
+          {editMode && (
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:8,padding:"8px 10px",background:"#eff6ff",borderRadius:8,border:"1px solid #bfdbfe" }}>
+              <span style={{ fontSize:11,color:"#1e40af",fontWeight:700 }}>✏️ Edit Mode — palitan ang Ending qty ng gusto mong i-adjust, tapos Save Changes:</span>
+              <input type="text" value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="Reason (optional, applied sa lahat ng babaguhin)" style={{ flex:1,minWidth:140,padding:"6px 9px",borderRadius:7,border:"1.5px solid #bfdbfe",fontSize:11 }}/>
+              <button onClick={saveAllEdits} disabled={saving} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:saving?"#94a3b8":"#16a34a",color:"white",fontWeight:700,fontSize:12,cursor:saving?"not-allowed":"pointer" }}>{saving?"Sinasave...":"💾 Save Changes"}</button>
+              <button onClick={cancelEdit} disabled={saving} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>Cancel</button>
+            </div>
+          )}
         </div>
 
         <div style={{ padding:"14px 22px" }}>
@@ -3034,43 +3074,38 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
           </div>
 
           {loading ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8" }}>Loading...</div> :
-            filtered.length===0 ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8",fontSize:12 }}>Walang data para sa branch/petsa na ito.</div> :
+            filtered.length===0 ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8",fontSize:12 }}>{searchMat?`Walang nahanap na "${searchMat}"`:"Walang stock records para sa branch na ito."}</div> :
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
                 <thead>
                   <tr style={{ background:"#1c1917",color:"white" }}>
                     <th style={{ padding:"8px 10px",textAlign:"left" }}>Material</th>
-                    <th style={{ padding:"8px 10px",textAlign:"right" }}>Current Stock</th>
+                    <th style={{ padding:"8px 10px",textAlign:"right" }}>Beginning</th>
                     <th style={{ padding:"8px 10px",textAlign:"right",color:"#86efac" }}>Delivered</th>
-                    <th style={{ padding:"8px 10px",textAlign:"right",color:"#fca5a5" }}>Spoiled/Waste</th>
+                    <th style={{ padding:"8px 10px",textAlign:"right",color:"#fde68a" }}>Used</th>
+                    <th style={{ padding:"8px 10px",textAlign:"right",color:"#fca5a5" }}>Spoilage</th>
+                    <th style={{ padding:"8px 10px",textAlign:"right" }}>Ending</th>
                     <th style={{ padding:"8px 10px",textAlign:"right" }}>Reorder At</th>
                     <th style={{ padding:"8px 10px",textAlign:"center" }}>Status</th>
-                    {isAdminOwner && <th style={{ padding:"8px 10px",textAlign:"center" }}>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(r=>(
                     <tr key={r.materialId} style={{ borderBottom:"1px solid #f1f5f9",background:r.isLow?"#fef2f2":"white" }}>
                       <td style={{ padding:"8px 10px",fontWeight:700 }}>{r.name} <span style={{ color:"#94a3b8",fontWeight:400 }}>({r.unit})</span></td>
-                      <td style={{ padding:"8px 10px",textAlign:"right",fontWeight:700,color:r.isLow?"#dc2626":"#16a34a" }}>{r.current}</td>
+                      <td style={{ padding:"8px 10px",textAlign:"right",color:"#57534e" }}>{r.beginning}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#16a34a" }}>{r.delivered>0?`+${r.delivered}`:"—"}</td>
+                      <td style={{ padding:"8px 10px",textAlign:"right",color:"#b45309" }}>{r.used>0?`-${r.used}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#dc2626" }}>{r.spoiled>0?`-${r.spoiled}`:"—"}</td>
+                      <td style={{ padding:"8px 10px",textAlign:"right" }}>
+                        {editMode ? (
+                          <input type="number" value={editVals[r.stockId] ?? r.ending} onChange={e=>setEditVals(p=>({...p,[r.stockId]:e.target.value}))} style={{ width:70,padding:"4px 6px",fontSize:12,fontWeight:700,borderRadius:6,border:"1.5px solid #2563eb",textAlign:"right" }}/>
+                        ) : (
+                          <span style={{ fontWeight:700,color:r.isLow?"#dc2626":"#16a34a" }}>{r.ending}</span>
+                        )}
+                      </td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#78716c" }}>{r.reorderPt}</td>
                       <td style={{ padding:"8px 10px",textAlign:"center" }}>{r.isLow?<span style={{ background:"#fef2f2",color:"#dc2626",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>⚠️ LOW</span>:<span style={{ background:"#f0fdf4",color:"#16a34a",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>OK</span>}</td>
-                      {isAdminOwner && (
-                        <td style={{ padding:"8px 10px",textAlign:"center" }}>
-                          {editId===r.stockId ? (
-                            <div style={{ display:"flex",gap:4,alignItems:"center",justifyContent:"center",flexWrap:"wrap" }}>
-                              <input type="number" value={editQty} onChange={e=>setEditQty(e.target.value)} style={{ width:64,padding:"4px 6px",fontSize:12,fontWeight:700,borderRadius:6,border:"1.5px solid #2563eb",textAlign:"center" }}/>
-                              <input type="text" value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="Reason" style={{ width:90,padding:"4px 6px",fontSize:11,borderRadius:6,border:"1.5px solid #e2e8f0" }}/>
-                              <button onClick={()=>saveAdjust(r)} style={{ padding:"4px 10px",borderRadius:6,border:"none",background:"#2563eb",color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save</button>
-                              <button onClick={()=>{ setEditId(null); setEditReason(""); }} style={{ padding:"4px 8px",borderRadius:6,border:"1px solid #e2e8f0",background:"white",cursor:"pointer",fontSize:11 }}>✕</button>
-                            </div>
-                          ) : (
-                            <button onClick={()=>{ setEditId(r.stockId); setEditQty(r.current); setEditReason(""); }} style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #2563eb",background:"#eff6ff",color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>✏️ Adjust</button>
-                          )}
-                        </td>
-                      )}
                     </tr>
                   ))}
                 </tbody>
