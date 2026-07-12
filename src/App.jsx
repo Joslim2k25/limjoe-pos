@@ -2925,6 +2925,7 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
 function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, userRole }) {
   const isManager = ROLE_LEVEL[userRole] >= 2;
   const isAdminOwner = ROLE_LEVEL[userRole] >= 3; // Owner/Admin only — matches InventoryModal's edit gate
+  const canManageCatalog = ROLE_LEVEL[userRole] >= 2; // manager+ can add new material types
   const [branchId, setBranchId] = useState(currentBranch?.id || BRANCHES[0].id);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2934,6 +2935,8 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [editVals, setEditVals] = useState({}); // stockId -> new qty string
   const [editReason, setEditReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showAddMat, setShowAddMat] = useState(false);
+  const [newMat, setNewMat] = useState({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
 
   useEffect(()=>{ loadReport(); }, [branchId]);
 
@@ -3008,6 +3011,30 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     loadReport();
   }
 
+  async function addMaterial() {
+    if (!newMat.name.trim()) { toast("Lagyan ng material name!", "err"); return; }
+    const created = await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: 0, reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
+    if (lastSbError || !created?.[0]) { toast("Hindi na-add: "+(lastSbError||"unknown error"), "err"); return; }
+    const materialId = created[0].id;
+    const startQty = parseFloat(newMat.stock_qty || 0);
+    const branch = BRANCHES.find(b=>b.id===branchId);
+    const seedRows = BRANCHES.map(b => ({
+      branch_id: b.id,
+      material_id: materialId,
+      stock_qty: b.id === branchId ? startQty : 0,
+      reorder_pt: parseFloat(newMat.reorder_pt || 0),
+    }));
+    await sb("branch_stock", "POST", seedRows);
+    if (startQty > 0) {
+      await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${branchId} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
+    }
+    toast("✅ Material added!");
+    auditLog('INVENTORY_ADD', `New material added: ${newMat.name.trim()} — ${startQty} ${newMat.unit} (${branch?.name||branchId})`, currentUser, branchId, branch?.name);
+    setNewMat({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
+    setShowAddMat(false);
+    loadReport();
+  }
+
   const baseFiltered = filter==="all" ? rows : filter==="low" ? rows.filter(r=>r.isLow) : filter==="spoiled" ? rows.filter(r=>r.spoiled>0) : rows;
   const filtered = searchMat.trim() ? baseFiltered.filter(r=>r.name.toLowerCase().includes(searchMat.toLowerCase())) : baseFiltered;
   const totalSpoilCost = rows.reduce((s,r)=>s+r.spoilCost,0);
@@ -3034,10 +3061,45 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
               <span style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8" }}>🔍</span>
               <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang material..." style={{ width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
             </div>
+            {canManageCatalog && !editMode && (
+              <button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:showAddMat?"#fef2f2":"#d97706",color:showAddMat?"#dc2626":"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Item"}</button>
+            )}
             {isAdminOwner && !editMode && (
               <button onClick={startEdit} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:"#2563eb",color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>✏️ Edit Mode</button>
             )}
           </div>
+          {showAddMat && canManageCatalog && !editMode && (
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginTop:8,padding:"10px",background:"#fffbeb",borderRadius:8,border:"1px solid #fed7aa" }}>
+              <div style={{ flex:2,minWidth:120 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Material name*</div>
+                <input value={newMat.name} onChange={e=>setNewMat(p=>({...p,name:e.target.value}))} style={{ width:"100%",padding:"6px 9px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
+              </div>
+              <div style={{ flex:1,minWidth:100 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Category</div>
+                <select value={newMat.category} onChange={e=>setNewMat(p=>({...p,category:e.target.value}))} style={{ width:"100%",padding:"6px 9px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12 }}>
+                  <option value="ingredient">Ingredient</option>
+                  <option value="consumable">Consumable</option>
+                  <option value="packaging">Packaging</option>
+                </select>
+              </div>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Unit</div>
+                <select value={newMat.unit} onChange={e=>setNewMat(p=>({...p,unit:e.target.value}))} style={{ width:"100%",padding:"6px 9px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12 }}>
+                  <option value="pcs">pcs</option><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="L">L</option>
+                  <option value="lbs">lbs</option><option value="oz">oz</option><option value="scoop">scoop</option><option value="pack">pack</option><option value="box">box</option><option value="bottle">bottle</option><option value="sachet">sachet</option>
+                </select>
+              </div>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Starting Qty ({branch?.name})</div>
+                <input type="number" value={newMat.stock_qty} onChange={e=>setNewMat(p=>({...p,stock_qty:e.target.value}))} placeholder="0" style={{ width:"100%",padding:"6px 9px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
+              </div>
+              <div style={{ flex:1,minWidth:80 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Reorder Point</div>
+                <input type="number" value={newMat.reorder_pt} onChange={e=>setNewMat(p=>({...p,reorder_pt:e.target.value}))} placeholder="0" style={{ width:"100%",padding:"6px 9px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
+              </div>
+              <button onClick={addMaterial} style={{ padding:"7px 16px",borderRadius:8,border:"none",background:"#d97706",color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>Save</button>
+            </div>
+          )}
           {editMode && (
             <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:8,padding:"8px 10px",background:"#eff6ff",borderRadius:8,border:"1px solid #bfdbfe" }}>
               <span style={{ fontSize:11,color:"#1e40af",fontWeight:700 }}>✏️ Edit Mode — palitan ang Ending qty ng gusto mong i-adjust, tapos Save Changes:</span>
