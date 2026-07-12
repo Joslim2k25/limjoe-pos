@@ -136,7 +136,7 @@ const DEFAULT_CATEGORIES = [
   { key: "ADD-ONS", label: "ADD-ONS", color: "#64748b" },
 ];
 const BORDER_COLORS = ["#d97706","#7c3aed","#db2777","#2563eb","#16a34a","#ea580c","#dc2626","#0284c7","#65a30d","#d97706"];
-const todayStr = () => new Date().toISOString().split("T")[0];
+const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 const nowStr = () => new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const nowFull = () => new Date().toLocaleString("en-PH");
 const applyDiscount = (p) => Math.round(p * 0.80 * 100) / 100;
