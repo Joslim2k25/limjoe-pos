@@ -1292,7 +1292,7 @@ export default function App() {
   const buildReadingHTML = (allOrders, branchLabel, dateLabel, title="X Reading Report", footNote="Interim reading — hindi nag-cclose ng araw") => {
     const nonVoid = allOrders.filter(o=>!o.voided);
     const voidOrders = allOrders.filter(o=>o.voided);
-    const catByName = {}; products.forEach(p=>{ catByName[p.name]=p.category; });
+    const catByName = {}; dbProducts.forEach(p=>{ catByName[p.name]=p.category; });
     const catSum = {};
     nonVoid.forEach(o=>o.items?.forEach(i=>{ const cat=catByName[i.name]||"OTHER"; if(!catSum[cat])catSum[cat]={qty:0,amt:0}; catSum[cat].qty+=i.qty; catSum[cat].amt+=(i.finalPrice||i.price)*i.qty; }));
     const discSum = {};
