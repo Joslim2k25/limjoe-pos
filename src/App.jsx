@@ -687,133 +687,80 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
 }
 
 // ─── INVENTORY MODAL ─────────────────────────────────────────────────────────
-function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" }) {
-  const [materials, setMaterials] = useState([]);
+function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFilter="all" }) {
+  const userRole = currentUser?.role || "cashier";
+  const isAdminOwner = ROLE_LEVEL[userRole] >= 3; // admin, owner — full cross-branch access
+  const canManageCatalog = ROLE_LEVEL[userRole] >= 2; // manager+ can add new material types
+  const [rows, setRows] = useState([]); // branch_stock rows (joined w/ raw_materials + branches)
   const [loading, setLoading] = useState(true);
-  const [editId, setEditId] = useState(null);
+  const [viewAllBranches, setViewAllBranches] = useState(false);
+  const [editId, setEditId] = useState(null); // branch_stock.id being edited
   const [editQty, setEditQty] = useState("");
+  const [editReason, setEditReason] = useState("");
   const [filter, setFilter] = useState(initialFilter);
   const [searchMat, setSearchMat] = useState("");
   const [showAddMat, setShowAddMat] = useState(false);
   const [newMat, setNewMat] = useState({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
 
-  useEffect(()=>{ loadMaterials(); }, []);
+  useEffect(()=>{ loadStock(); }, [viewAllBranches]);
 
-  async function loadMaterials() {
+  async function loadStock() {
     setLoading(true);
-    const data = await sb("raw_materials?select=*&order=name.asc");
-    if (data) setMaterials(data);
+    const branchFilter = viewAllBranches ? "" : `&branch_id=eq.${currentBranch.id}`;
+    const data = await sb(`branch_stock?select=*,raw_materials(name,unit,category),branches(name)&order=raw_materials(name).asc${branchFilter}`);
+    if (data) setRows(data);
     setLoading(false);
   }
 
-  function exportToExcel(fromDate, toDate, branchId) {
-    const allDates = [];
-    const d = new Date(fromDate);
-    const end = new Date(toDate);
-    while (d <= end) {
-      allDates.push(d.toISOString().slice(0,10));
-      d.setDate(d.getDate()+1);
-    }
-    const branches = branchId ? [BRANCHES.find(b=>b.id===branchId)] : BRANCHES;
-    const rows = [];
-    branches.forEach(branch => {
-      allDates.forEach(dk => {
-        const ords = getOrders(dk, branch.id);
-        if (ords.length === 0) return;
-        const gross = ords.reduce((s,o)=>s+o.total, 0);
-        const gcash = ords.filter(o=>o.paymentMethod==="gcash").reduce((s,o)=>s+o.total, 0);
-        const maya = ords.filter(o=>o.paymentMethod==="maya").reduce((s,o)=>s+o.total, 0);
-        const gotyme = ords.filter(o=>o.paymentMethod==="gotyme").reduce((s,o)=>s+o.total, 0);
-        const grabfood = ords.filter(o=>o.paymentMethod==="grabfood").reduce((s,o)=>s+o.total, 0);
-        const foodpanda = ords.filter(o=>o.paymentMethod==="foodpanda").reduce((s,o)=>s+o.total, 0);
-        const sm = ords.filter(o=>o.paymentMethod==="sm").reduce((s,o)=>s+o.total, 0);
-        const discount = ords.reduce((s,o)=>s+(o.discountAmt||0), 0);
-        const expsRaw = getExps(dk, branch.id);
-        const expenses = expsRaw.reduce((s,e)=>s+parseFloat(e.amount), 0);
-        const expCOS = expsRaw.filter(e=>e.category==="Cost of Products/Ingredients").reduce((s,e)=>s+parseFloat(e.amount), 0);
-        const expShipping = expsRaw.filter(e=>e.category==="Shipping Fee").reduce((s,e)=>s+parseFloat(e.amount), 0);
-        const expOffice = expsRaw.filter(e=>e.category==="Office Supplies").reduce((s,e)=>s+parseFloat(e.amount), 0);
-        const expMisc = expsRaw.filter(e=>e.category==="Miscellaneous").reduce((s,e)=>s+parseFloat(e.amount), 0);
-        const net = gross - gcash - maya - gotyme - grabfood - foodpanda - sm - discount - expenses;
-        const cohKey = `${branch.id}_${dk}`;
-        const coh = cashOnHand[cohKey] ?? "";
-        rows.push({
-          "Date": dk,
-          "Branch": branch.name,
-          "Transactions": ords.length,
-          "Gross Sales": gross,
-          "GCash": gcash,
-          "Maya": maya,
-          "GoTyme": gotyme,
-          "GrabFood": grabfood,
-          "FoodPanda": foodpanda,
-          "SM Online": sm,
-          "Discount": discount,
-          "Exp - Cost of Products": expCOS,
-          "Exp - Shipping Fee": expShipping,
-          "Exp - Office Supplies": expOffice,
-          "Exp - Miscellaneous": expMisc,
-          "Total Expenses": expenses,
-          "NET SALES": net,
-          "Cash on Hand": coh,
-          "Status": coh !== "" ? (Math.abs(parseFloat(coh)-net)<1?"MATCHED":parseFloat(coh)>net?"OVER":"SHORT") : ""
-        });
-      });
-    });
-
-    // Add totals row
-    if (rows.length > 0) {
-      const totals = { "Date": "TOTAL", "Branch": "", "Transactions": rows.reduce((s,r)=>s+r["Transactions"],0) };
-      ["Gross Sales","GCash","Maya","GoTyme","GrabFood","FoodPanda","SM Online","Discount","Exp - Cost of Products","Exp - Shipping Fee","Exp - Office Supplies","Exp - Miscellaneous","Total Expenses","NET SALES"].forEach(k => {
-        totals[k] = rows.reduce((s,r)=>s+(r[k]||0), 0);
-      });
-      totals["Cash on Hand"] = "";
-      totals["Status"] = "";
-      rows.push(totals);
-    }
-
-    if (rows.length === 0) { toast("Walang data sa selected dates!", "err"); return; }
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
-
-    // Style header row width
-    ws["!cols"] = [
-      {wch:12},{wch:12},{wch:12},{wch:13},{wch:10},{wch:10},{wch:10},{wch:11},{wch:11},{wch:11},{wch:10},
-      {wch:20},{wch:18},{wch:18},{wch:16},{wch:14},{wch:12},{wch:13},{wch:10}
-    ];
-
-    const filename = `Limjoe_SalesReport_${fromDate}_to_${toDate}.xlsx`;
-    XLSX.writeFile(wb, filename);
-    toast(`✅ Downloaded: ${filename}`);
-    setShowExportModal(false);
-  }
+  // Row is editable if: Admin/Owner (any branch), or a lower role editing their own current branch.
+  function canAdjust(row) { return isAdminOwner || row.branch_id === currentBranch.id; }
 
   async function addMaterial() {
     if (!newMat.name.trim()) { toast("Lagyan ng material name!", "err"); return; }
-    if (!newMat.stock_qty) { toast("Lagyan ng stock qty!", "err"); return; }
-    await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: parseFloat(newMat.stock_qty), reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
-    if (lastSbError) { toast("Hindi na-add: "+lastSbError, "err"); return; }
-    toast("✅ Material added!"); auditLog('INVENTORY_ADD', `New material added: ${newMat.name.trim()} — ${newMat.stock_qty} ${newMat.unit}`, {name:'Admin/Manager',role:'admin'});
+    // 1) Create the catalog entry (name/category/unit/cost — no real quantity lives here anymore).
+    const created = await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: 0, reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
+    if (lastSbError || !created?.[0]) { toast("Hindi na-add: "+(lastSbError||"unknown error"), "err"); return; }
+    const materialId = created[0].id;
+    // 2) Seed a branch_stock row for every branch so it immediately shows up per-branch.
+    //    Starting qty goes to the branch the person currently has open; other branches start at 0.
+    const startQty = parseFloat(newMat.stock_qty || 0);
+    const seedRows = BRANCHES.map(b => ({
+      branch_id: b.id,
+      material_id: materialId,
+      stock_qty: b.id === currentBranch.id ? startQty : 0,
+      reorder_pt: parseFloat(newMat.reorder_pt || 0),
+    }));
+    await sb("branch_stock", "POST", seedRows);
+    if (startQty > 0) {
+      await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${currentBranch.id} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
+    }
+    toast("✅ Material added!");
+    auditLog('INVENTORY_ADD', `New material added: ${newMat.name.trim()} — ${startQty} ${newMat.unit} (${currentBranch.name})`, currentUser, currentBranch.id, currentBranch.name);
     setNewMat({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
     setShowAddMat(false);
-    loadMaterials();
+    loadStock();
   }
 
-  async function saveQty(id) {
-    const qty = parseFloat(editQty);
-    if (isNaN(qty)) { toast("Invalid qty!", "err"); return; }
-    await sb(`raw_materials?id=eq.${id}`, "PATCH", { stock_qty: qty, updated_at: new Date().toISOString() });
+  async function saveAdjust(row) {
+    const newQty = parseFloat(editQty);
+    if (isNaN(newQty) || newQty < 0) { toast("Invalid qty!", "err"); return; }
+    const oldQty = parseFloat(row.stock_qty || 0);
+    const delta = newQty - oldQty;
+    await sb(`branch_stock?id=eq.${row.id}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
     if (lastSbError) { toast("Error: "+lastSbError, "err"); return; }
-    // Log the manual adjustment
-    await sb("inventory_logs", "POST", [{ material_id: id, change_qty: qty, note: "Manual stock adjustment" }]);
-    toast("✅ Stock updated!"); setEditId(null); loadMaterials();
+    const branchName = row.branches?.name || BRANCHES.find(b=>b.id===row.branch_id)?.name || `Branch ${row.branch_id}`;
+    const reasonTxt = editReason.trim() ? ` — ${editReason.trim()}` : "";
+    await sb("inventory_logs", "POST", [{
+      material_id: row.material_id, order_id: null, change_qty: delta,
+      note: `Branch ${row.branch_id} - Manual stock adjustment: ${delta>=0?"+":""}${delta}${reasonTxt}`,
+    }]);
+    auditLog('INVENTORY_ADJUST', `${row.raw_materials?.name||"Material"} adjusted ${delta>=0?"+":""}${delta} ${row.raw_materials?.unit||""} (${oldQty} → ${newQty})${reasonTxt}`, currentUser, row.branch_id, branchName);
+    toast("✅ Stock updated!"); setEditId(null); setEditReason(""); loadStock();
   }
 
-  const baseFiltered = filter==="all" ? materials : filter==="low" ? materials.filter(m=>m.stock_qty<=m.reorder_pt) : materials.filter(m=>m.category===filter);
-  const filtered = searchMat.trim() ? baseFiltered.filter(m=>m.name.toLowerCase().includes(searchMat.toLowerCase())) : baseFiltered;
-  const lowCount = materials.filter(m=>m.stock_qty<=m.reorder_pt).length;
+  const baseFiltered = filter==="all" ? rows : filter==="low" ? rows.filter(r=>r.stock_qty<=r.reorder_pt) : rows.filter(r=>r.raw_materials?.category===filter);
+  const filtered = searchMat.trim() ? baseFiltered.filter(r=>(r.raw_materials?.name||"").toLowerCase().includes(searchMat.toLowerCase())) : baseFiltered;
+  const lowCount = rows.filter(r=>r.stock_qty<=r.reorder_pt).length;
 
   const catColors = { ingredient:"#16a34a", consumable:"#2563eb", packaging:"#d97706" };
 
@@ -822,17 +769,27 @@ function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" })
       <div style={{ background:"white",borderRadius:16,width:"min(680px,95vw)",maxHeight:"92vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
         <div style={{ padding:"18px 22px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10 }}>
           <div>
-            <div style={{ fontWeight:900,fontSize:18,color:C.text }}>📦 Raw Materials Inventory</div>
-            {lowCount>0&&<div style={{ fontSize:11,color:C.danger,fontWeight:700 }}>⚠️ {lowCount} item(s) na mababa ang stock!</div>}
+            <div style={{ fontWeight:900,fontSize:18,color:C.text }}>📦 Inventory / Adjust Stock</div>
+            <div style={{ fontSize:11,color:C.text3,marginTop:2 }}>📍 {viewAllBranches ? "Lahat ng Branches" : currentBranch.name}</div>
+            {lowCount>0&&<div style={{ fontSize:11,color:C.danger,fontWeight:700,marginTop:2 }}>⚠️ {lowCount} item(s) na mababa ang stock!</div>}
           </div>
           <div style={{ display:"flex",gap:8 }}>
-            {canDelete&&<button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",background:showAddMat?C.dangerBg:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Material"}</button>}
+            {canManageCatalog&&<button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",background:showAddMat?C.dangerBg:C.warning,border:"none",borderRadius:8,color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Material"}</button>}
             <button onClick={onClose} style={{ border:"none",background:C.bg3,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:C.text3 }}>✕</button>
           </div>
         </div>
 
+        {isAdminOwner && (
+          <div style={{ padding:"10px 22px",borderBottom:`1px solid ${C.border}`,background:C.bg3 }}>
+            <label style={{ display:"flex",alignItems:"center",gap:8,fontSize:12,color:C.text2,cursor:"pointer" }}>
+              <input type="checkbox" checked={viewAllBranches} onChange={e=>setViewAllBranches(e.target.checked)} />
+              Ipakita at i-edit lahat ng branches (Admin/Owner only)
+            </label>
+          </div>
+        )}
+
         {/* Add Material Form */}
-        {canDelete&&showAddMat&&(
+        {canManageCatalog&&showAddMat&&(
           <div style={{ padding:"14px 22px",background:C.warningBg,borderBottom:`1px solid #fed7aa` }}>
             <div style={{ fontWeight:700,fontSize:12,color:C.warning,marginBottom:10 }}>NEW RAW MATERIAL</div>
             <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
@@ -862,7 +819,7 @@ function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" })
                 </select>
               </div>
               <div style={{ flex:1,minWidth:80 }}>
-                <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Stock Qty*</div>
+                <div style={{ fontSize:10,color:C.text3,marginBottom:3 }}>Starting Qty ({currentBranch.name})</div>
                 <input value={newMat.stock_qty} onChange={e=>setNewMat(p=>({...p,stock_qty:e.target.value}))} type="number" placeholder="0" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
               </div>
               <div style={{ flex:1,minWidth:80 }}>
@@ -874,6 +831,7 @@ function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" })
                 <input value={newMat.cost_per_unit} onChange={e=>setNewMat(p=>({...p,cost_per_unit:e.target.value}))} type="number" placeholder="0" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
               </div>
             </div>
+            <div style={{ fontSize:10,color:C.text3,marginBottom:8 }}>Gagawa ito ng stock record sa LAHAT ng 4 branches (0 sa iba, starting qty sa {currentBranch.name}).</div>
             <div style={{ display:"flex",justifyContent:"flex-end" }}>
               <button onClick={addMaterial} style={PriBtn(C.warning)}>Save Material</button>
             </div>
@@ -895,40 +853,45 @@ function InventoryModal({ onClose, toast, canDelete=true, initialFilter="all" })
         </div>
 
         <div style={{ padding:"14px 22px" }}>
-          {loading?<div style={{ textAlign:"center",padding:30,color:C.text3 }}>Loading...</div>:filtered.map(mat=>{
-            const isLow = mat.stock_qty <= mat.reorder_pt;
+          {loading?<div style={{ textAlign:"center",padding:30,color:C.text3 }}>Loading...</div>:filtered.map(row=>{
+            const isLow = row.stock_qty <= row.reorder_pt;
+            const mat = row.raw_materials || {};
+            const branchName = row.branches?.name || BRANCHES.find(b=>b.id===row.branch_id)?.name || `Branch ${row.branch_id}`;
+            const editable = canAdjust(row);
             return (
-              <div key={mat.id} style={{ borderRadius:10,padding:"11px 14px",marginBottom:8,border:`1px solid ${isLow?C.danger:C.border}`,background:isLow?C.dangerBg:"white" }}>
+              <div key={row.id} style={{ borderRadius:10,padding:"11px 14px",marginBottom:8,border:`1px solid ${isLow?C.danger:C.border}`,background:isLow?C.dangerBg:"white" }}>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                   <div style={{ flex:1 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                      <span style={{ fontWeight:700,fontSize:13,color:C.text }}>{mat.name}</span>
-                      <span style={{ fontSize:10,padding:"1px 7px",borderRadius:20,background:catColors[mat.category]+"20",color:catColors[mat.category],fontWeight:700 }}>{mat.category}</span>
+                    <div style={{ display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" }}>
+                      <span style={{ fontWeight:700,fontSize:13,color:C.text }}>{mat.name||"?"}</span>
+                      <span style={{ fontSize:10,padding:"1px 7px",borderRadius:20,background:(catColors[mat.category]||"#64748b")+"20",color:catColors[mat.category]||"#64748b",fontWeight:700 }}>{mat.category}</span>
+                      {viewAllBranches&&<span style={{ fontSize:10,color:C.info,fontWeight:700 }}>📍 {branchName}</span>}
                       {isLow&&<span style={{ fontSize:10,color:C.danger,fontWeight:700 }}>⚠️ Low!</span>}
                     </div>
-                    <div style={{ fontSize:11,color:C.text3,marginTop:2 }}>Reorder at: {mat.reorder_pt} {mat.unit}</div>
+                    <div style={{ fontSize:11,color:C.text3,marginTop:2 }}>Reorder at: {row.reorder_pt} {mat.unit}</div>
                   </div>
-                  {editId===mat.id ? (
-                    <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                  {editId===row.id ? (
+                    <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end" }}>
                       <input type="number" value={editQty} onChange={e=>setEditQty(e.target.value)} style={{ width:80,padding:"5px 8px",fontSize:13,fontWeight:700,borderRadius:7,border:`1.5px solid ${C.info}`,textAlign:"center" }}/>
                       <span style={{ fontSize:11,color:C.text3 }}>{mat.unit}</span>
-                      <button onClick={()=>saveQty(mat.id)} style={PriBtn(C.info)}>Save</button>
-                      <button onClick={()=>setEditId(null)} style={SecBtn}>✕</button>
+                      <input type="text" value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="Reason (optional)" style={{ width:120,padding:"5px 8px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}` }}/>
+                      <button onClick={()=>saveAdjust(row)} style={PriBtn(C.info)}>Save</button>
+                      <button onClick={()=>{ setEditId(null); setEditReason(""); }} style={SecBtn}>✕</button>
                     </div>
                   ) : (
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <div style={{ textAlign:"right" }}>
-                        <div style={{ fontWeight:900,fontSize:16,color:isLow?C.danger:C.success }}>{mat.stock_qty}</div>
+                        <div style={{ fontWeight:900,fontSize:16,color:isLow?C.danger:C.success }}>{row.stock_qty}</div>
                         <div style={{ fontSize:10,color:C.text3 }}>{mat.unit}</div>
                       </div>
-                      {canDelete&&<button onClick={()=>{ setEditId(mat.id); setEditQty(mat.stock_qty); }} style={{ padding:"5px 11px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>Adjust</button>}
+                      {editable&&<button onClick={()=>{ setEditId(row.id); setEditQty(row.stock_qty); setEditReason(""); }} style={{ padding:"5px 11px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:6,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>Adjust</button>}
                     </div>
                   )}
                 </div>
               </div>
             );
           })}
-          {filtered.length===0&&<div style={{ textAlign:"center",color:C.text3,padding:"20px 0",fontSize:12 }}>Walang materials. I-upload muna via Bulk Upload.</div>}
+          {filtered.length===0&&!loading&&<div style={{ textAlign:"center",color:C.text3,padding:"20px 0",fontSize:12 }}>Walang stock records{viewAllBranches?"":` para sa ${currentBranch.name}`}. I-log muna ng delivery o gumawa ng bagong material.</div>}
         </div>
       </div>
     </div>
@@ -1358,6 +1321,90 @@ export default function App() {
   const clearDeposit = () => { setDepositResult(null); setDepositAmt(""); setDepositFrom(todayStr()); setDepositTo(todayStr()); };
   const bFilter = selectedBranch==="all"?null:parseInt(selectedBranch);
 
+  function exportToExcel(fromDate, toDate, branchId) {
+    const allDates = [];
+    const d = new Date(fromDate);
+    const end = new Date(toDate);
+    while (d <= end) {
+      allDates.push(d.toISOString().slice(0,10));
+      d.setDate(d.getDate()+1);
+    }
+    const branches = branchId ? [BRANCHES.find(b=>b.id===branchId)] : BRANCHES;
+    const rows = [];
+    branches.forEach(branch => {
+      allDates.forEach(dk => {
+        const ords = getOrders(dk, branch.id);
+        if (ords.length === 0) return;
+        const gross = ords.reduce((s,o)=>s+o.total, 0);
+        const gcash = ords.filter(o=>o.paymentMethod==="gcash").reduce((s,o)=>s+o.total, 0);
+        const maya = ords.filter(o=>o.paymentMethod==="maya").reduce((s,o)=>s+o.total, 0);
+        const gotyme = ords.filter(o=>o.paymentMethod==="gotyme").reduce((s,o)=>s+o.total, 0);
+        const grabfood = ords.filter(o=>o.paymentMethod==="grabfood").reduce((s,o)=>s+o.total, 0);
+        const foodpanda = ords.filter(o=>o.paymentMethod==="foodpanda").reduce((s,o)=>s+o.total, 0);
+        const sm = ords.filter(o=>o.paymentMethod==="sm").reduce((s,o)=>s+o.total, 0);
+        const discount = ords.reduce((s,o)=>s+(o.discountAmt||0), 0);
+        const expsRaw = getExps(dk, branch.id);
+        const expenses = expsRaw.reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expCOS = expsRaw.filter(e=>e.category==="Cost of Products/Ingredients").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expShipping = expsRaw.filter(e=>e.category==="Shipping Fee").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expOffice = expsRaw.filter(e=>e.category==="Office Supplies").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const expMisc = expsRaw.filter(e=>e.category==="Miscellaneous").reduce((s,e)=>s+parseFloat(e.amount), 0);
+        const net = gross - gcash - maya - gotyme - grabfood - foodpanda - sm - discount - expenses;
+        const cohKey = `${branch.id}_${dk}`;
+        const coh = cashOnHand[cohKey] ?? "";
+        rows.push({
+          "Date": dk,
+          "Branch": branch.name,
+          "Transactions": ords.length,
+          "Gross Sales": gross,
+          "GCash": gcash,
+          "Maya": maya,
+          "GoTyme": gotyme,
+          "GrabFood": grabfood,
+          "FoodPanda": foodpanda,
+          "SM Online": sm,
+          "Discount": discount,
+          "Exp - Cost of Products": expCOS,
+          "Exp - Shipping Fee": expShipping,
+          "Exp - Office Supplies": expOffice,
+          "Exp - Miscellaneous": expMisc,
+          "Total Expenses": expenses,
+          "NET SALES": net,
+          "Cash on Hand": coh,
+          "Status": coh !== "" ? (Math.abs(parseFloat(coh)-net)<1?"MATCHED":parseFloat(coh)>net?"OVER":"SHORT") : ""
+        });
+      });
+    });
+
+    // Add totals row
+    if (rows.length > 0) {
+      const totals = { "Date": "TOTAL", "Branch": "", "Transactions": rows.reduce((s,r)=>s+r["Transactions"],0) };
+      ["Gross Sales","GCash","Maya","GoTyme","GrabFood","FoodPanda","SM Online","Discount","Exp - Cost of Products","Exp - Shipping Fee","Exp - Office Supplies","Exp - Miscellaneous","Total Expenses","NET SALES"].forEach(k => {
+        totals[k] = rows.reduce((s,r)=>s+(r[k]||0), 0);
+      });
+      totals["Cash on Hand"] = "";
+      totals["Status"] = "";
+      rows.push(totals);
+    }
+
+    if (rows.length === 0) { toast("Walang data sa selected dates!", "err"); return; }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sales Report");
+
+    // Style header row width
+    ws["!cols"] = [
+      {wch:12},{wch:12},{wch:12},{wch:13},{wch:10},{wch:10},{wch:10},{wch:11},{wch:11},{wch:11},{wch:10},
+      {wch:20},{wch:18},{wch:18},{wch:16},{wch:14},{wch:12},{wch:13},{wch:10}
+    ];
+
+    const filename = `Limjoe_SalesReport_${fromDate}_to_${toDate}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    toast(`✅ Downloaded: ${filename}`);
+    setShowExportModal(false);
+  }
+
   // ── INVENTORY LOW STOCK BADGE (per-branch, from branch_stock — NOT the old global raw_materials) ──
   const [lowStockCount, setLowStockCount] = useState(0);
   const [lowStockNames, setLowStockNames] = useState([]);
@@ -1495,11 +1542,11 @@ export default function App() {
       )}
       {showBulkUpload&&<BulkUploadModal onClose={()=>setShowBulkUpload(false)} toast={toast} onReloadProducts={loadProducts} onReloadInventory={()=>setLowStockCount(p=>p)}/>}
       {showProductEditor&&<ProductEditorModal onClose={()=>setShowProductEditor(false)} toast={toast} userRole={currentUser?.role||"admin"} categories={activeCategories} onReloadProducts={loadProducts}/>}
-      {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} canDelete={ROLE_LEVEL[currentUser?.role||"cashier"]>=2} initialFilter={inventoryInitialFilter}/>}
+      {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} initialFilter={inventoryInitialFilter}/>}
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showSpoilage&&<SpoilageModal onClose={()=>setShowSpoilage(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
-      {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
+      {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showTxnDrill&&<TransactionDrillModal date={showTxnDrill.date} type={showTxnDrill.type} filterKey={showTxnDrill.filterKey} label={showTxnDrill.label} branchId={bFilter} onClose={()=>setShowTxnDrill(null)}/>}
       {showDiscountIdLog&&<DiscountIdLogModal onClose={()=>setShowDiscountIdLog(false)} currentBranch={bFilter?BRANCHES.find(b=>b.id===bFilter):null}/>}
     </>
@@ -2810,9 +2857,7 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewAllBranches, setViewAllBranches] = useState(false);
-  const isManager = ROLE_LEVEL[userRole] >= 2;
-
-  useEffect(() => { loadStock(); }, [viewAllBranches]);
+  const isManager = ROLE_LEVEL[userRole] >= 3; // Admin/Owner only — matches InventoryModal's cross-branch gate
 
   async function loadStock() {
     setLoading(true);
@@ -2876,21 +2921,25 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
 }
 
 // ─── INVENTORY SUMMARY REPORT (per branch — stock + deliveries + spoilage) ───
-function InventorySummaryModal({ onClose, toast, currentBranch, userRole }) {
+function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, userRole }) {
   const isManager = ROLE_LEVEL[userRole] >= 2;
+  const isAdminOwner = ROLE_LEVEL[userRole] >= 3; // Owner/Admin only — matches InventoryModal's edit gate
   const [branchId, setBranchId] = useState(currentBranch?.id || BRANCHES[0].id);
   const [fromDate, setFromDate] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
   const [toDate, setToDate] = useState(()=>new Date().toISOString().slice(0,10));
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [editId, setEditId] = useState(null); // branch_stock.id being adjusted
+  const [editQty, setEditQty] = useState("");
+  const [editReason, setEditReason] = useState("");
 
   useEffect(()=>{ loadReport(); }, [branchId, fromDate, toDate]);
 
   async function loadReport() {
     setLoading(true);
     const [stockRows, delivRows, spoilRows] = await Promise.all([
-      sb(`branch_stock?select=material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)&branch_id=eq.${branchId}`),
+      sb(`branch_stock?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)&branch_id=eq.${branchId}`),
       sb(`deliveries?select=material_id,qty&branch_id=eq.${branchId}&delivery_date=gte.${fromDate}&delivery_date=lte.${toDate}`),
       sb(`spoilage?select=material_id,qty&branch_id=eq.${branchId}&created_at=gte.${fromDate}&created_at=lte.${toDate}T23:59:59`),
     ]);
@@ -2901,6 +2950,7 @@ function InventorySummaryModal({ onClose, toast, currentBranch, userRole }) {
       const spoiled = spoilMap[r.material_id]||0;
       const cost = r.raw_materials?.cost_per_unit || 0;
       return {
+        stockId: r.id,
         materialId: r.material_id,
         name: r.raw_materials?.name || "?",
         unit: r.raw_materials?.unit || "",
@@ -2914,6 +2964,23 @@ function InventorySummaryModal({ onClose, toast, currentBranch, userRole }) {
     }).sort((a,b)=>a.name.localeCompare(b.name));
     setRows(built);
     setLoading(false);
+  }
+
+  async function saveAdjust(r) {
+    const newQty = parseFloat(editQty);
+    if (isNaN(newQty) || newQty < 0) { toast("Invalid qty!", "err"); return; }
+    const oldQty = r.current;
+    const delta = newQty - oldQty;
+    await sb(`branch_stock?id=eq.${r.stockId}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
+    if (lastSbError) { toast("Error: "+lastSbError, "err"); return; }
+    const branchName = BRANCHES.find(b=>b.id===branchId)?.name || `Branch ${branchId}`;
+    const reasonTxt = editReason.trim() ? ` — ${editReason.trim()}` : "";
+    await sb("inventory_logs", "POST", [{
+      material_id: r.materialId, order_id: null, change_qty: delta,
+      note: `Branch ${branchId} - Manual stock adjustment: ${delta>=0?"+":""}${delta}${reasonTxt}`,
+    }]);
+    auditLog('INVENTORY_ADJUST', `${r.name} adjusted ${delta>=0?"+":""}${delta} ${r.unit} (${oldQty} → ${newQty})${reasonTxt} — via Inventory Summary Report`, currentUser, branchId, branchName);
+    toast("✅ Stock updated!"); setEditId(null); setEditReason(""); loadReport();
   }
 
   const filtered = filter==="all" ? rows : filter==="low" ? rows.filter(r=>r.isLow) : filter==="spoiled" ? rows.filter(r=>r.spoiled>0) : rows;
@@ -2978,6 +3045,7 @@ function InventorySummaryModal({ onClose, toast, currentBranch, userRole }) {
                     <th style={{ padding:"8px 10px",textAlign:"right",color:"#fca5a5" }}>Spoiled/Waste</th>
                     <th style={{ padding:"8px 10px",textAlign:"right" }}>Reorder At</th>
                     <th style={{ padding:"8px 10px",textAlign:"center" }}>Status</th>
+                    {isAdminOwner && <th style={{ padding:"8px 10px",textAlign:"center" }}>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -2989,6 +3057,20 @@ function InventorySummaryModal({ onClose, toast, currentBranch, userRole }) {
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#dc2626" }}>{r.spoiled>0?`-${r.spoiled}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#78716c" }}>{r.reorderPt}</td>
                       <td style={{ padding:"8px 10px",textAlign:"center" }}>{r.isLow?<span style={{ background:"#fef2f2",color:"#dc2626",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>⚠️ LOW</span>:<span style={{ background:"#f0fdf4",color:"#16a34a",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>OK</span>}</td>
+                      {isAdminOwner && (
+                        <td style={{ padding:"8px 10px",textAlign:"center" }}>
+                          {editId===r.stockId ? (
+                            <div style={{ display:"flex",gap:4,alignItems:"center",justifyContent:"center",flexWrap:"wrap" }}>
+                              <input type="number" value={editQty} onChange={e=>setEditQty(e.target.value)} style={{ width:64,padding:"4px 6px",fontSize:12,fontWeight:700,borderRadius:6,border:"1.5px solid #2563eb",textAlign:"center" }}/>
+                              <input type="text" value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="Reason" style={{ width:90,padding:"4px 6px",fontSize:11,borderRadius:6,border:"1.5px solid #e2e8f0" }}/>
+                              <button onClick={()=>saveAdjust(r)} style={{ padding:"4px 10px",borderRadius:6,border:"none",background:"#2563eb",color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>Save</button>
+                              <button onClick={()=>{ setEditId(null); setEditReason(""); }} style={{ padding:"4px 8px",borderRadius:6,border:"1px solid #e2e8f0",background:"white",cursor:"pointer",fontSize:11 }}>✕</button>
+                            </div>
+                          ) : (
+                            <button onClick={()=>{ setEditId(r.stockId); setEditQty(r.current); setEditReason(""); }} style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #2563eb",background:"#eff6ff",color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>✏️ Adjust</button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
