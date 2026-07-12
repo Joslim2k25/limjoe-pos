@@ -3167,3 +3167,4 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
     </div>
   );
 }
+
