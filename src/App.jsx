@@ -758,8 +758,15 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
       stock_qty: startQty,
       reorder_pt: parseFloat(newMat.reorder_pt || 0),
     }]);
+    // Seed today's Beginning snapshot at 0 explicitly — a brand-new material didn't exist
+    // before now, so its starting qty should show up as "Delivered" (see below), not silently
+    // vanish from the ledger (the trigger only fires on UPDATEs, not this initial INSERT).
+    await sb(`daily_stock_snapshot?on_conflict=branch_id,material_id,snapshot_date`, "POST", [{ branch_id: currentBranch.id, material_id: materialId, snapshot_date: todayStr(), beginning_qty: 0 }],
+      { "Prefer": "resolution=merge-duplicates,return=representation" });
     if (startQty > 0) {
-      await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${currentBranch.id} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
+      // Phrased to match the report's "delivery received" pattern so the initial stock shows
+      // up as Delivered instead of being unaccounted for in Beginning/Used/Spoilage math.
+      await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${currentBranch.id} - Delivery received: +${startQty} (Initial stock — new material: ${newMat.name.trim()})` }]);
     }
     toast("✅ Material added!");
     auditLog('INVENTORY_ADD', `New material added: ${newMat.name.trim()} — ${startQty} ${newMat.unit} (${currentBranch.name})`, currentUser, currentBranch.id, currentBranch.name);
@@ -3187,8 +3194,11 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
       stock_qty: startQty,
       reorder_pt: parseFloat(newMat.reorder_pt || 0),
     }]);
+    // Seed today's Beginning snapshot at 0 explicitly — see InventoryModal.addMaterial for why.
+    await sb(`daily_stock_snapshot?on_conflict=branch_id,material_id,snapshot_date`, "POST", [{ branch_id: branchId, material_id: materialId, snapshot_date: todayStr(), beginning_qty: 0 }],
+      { "Prefer": "resolution=merge-duplicates,return=representation" });
     if (startQty > 0) {
-      await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${branchId} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
+      await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${branchId} - Delivery received: +${startQty} (Initial stock — new material: ${newMat.name.trim()})` }]);
     }
     toast("✅ Material added!");
     auditLog('INVENTORY_ADD', `New material added: ${newMat.name.trim()} — ${startQty} ${newMat.unit} (${branch?.name||branchId})`, currentUser, branchId, branch?.name);
