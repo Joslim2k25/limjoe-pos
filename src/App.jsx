@@ -3039,6 +3039,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [searchMat, setSearchMat] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [editVals, setEditVals] = useState({}); // stockId -> new qty string
+  const [editBeginVals, setEditBeginVals] = useState({}); // stockId -> new Beginning qty string (Admin/Owner only)
   const [editReason, setEditReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [showAddMat, setShowAddMat] = useState(false);
@@ -3108,19 +3109,27 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     setLoading(false);
   }
 
-  function startEdit() { const init={}; rows.forEach(r=>{ init[r.stockId]=String(r.ending); }); setEditVals(init); setEditMode(true); setEditReason(""); }
-  function cancelEdit() { setEditMode(false); setEditVals({}); setEditReason(""); }
+  function startEdit() {
+    const initEnd={}, initBeg={};
+    rows.forEach(r=>{ initEnd[r.stockId]=String(r.ending); initBeg[r.stockId]=String(r.beginning); });
+    setEditVals(initEnd); setEditBeginVals(initBeg); setEditMode(true); setEditReason("");
+  }
+  function cancelEdit() { setEditMode(false); setEditVals({}); setEditBeginVals({}); setEditReason(""); }
 
   async function saveAllEdits() {
     const branchName = BRANCHES.find(b=>b.id===branchId)?.name || `Branch ${branchId}`;
     const reasonTxt = editReason.trim() ? ` — ${editReason.trim()}` : "";
-    const changed = rows.filter(r => {
+    const changedEnding = rows.filter(r => {
       const v = parseFloat(editVals[r.stockId]);
       return !isNaN(v) && v >= 0 && v !== r.ending;
     });
-    if (changed.length === 0) { toast("Walang binago.", "err"); setEditMode(false); return; }
+    const changedBeginning = isAdminOwner ? rows.filter(r => {
+      const v = parseFloat(editBeginVals[r.stockId]);
+      return !isNaN(v) && v >= 0 && v !== r.beginning;
+    }) : [];
+    if (changedEnding.length === 0 && changedBeginning.length === 0) { toast("Walang binago.", "err"); setEditMode(false); return; }
     setSaving(true);
-    for (const r of changed) {
+    for (const r of changedEnding) {
       const newQty = parseFloat(editVals[r.stockId]);
       const delta = newQty - r.ending;
       await sb(`${BRANCH_STOCK_TABLE[branchId]}?id=eq.${r.stockId}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
@@ -3132,9 +3141,20 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
         auditLog('INVENTORY_ADJUST', `${r.name} adjusted ${delta>=0?"+":""}${delta} ${r.unit} (${r.ending} → ${newQty})${reasonTxt} — via Inventory Summary Report`, currentUser, branchId, branchName);
       }
     }
+    // Beginning Inventory — Admin/Owner only, corrects the locked daily snapshot directly
+    // (e.g. to match a physical count), separate from the Used/Delivered/Spoilage ledger.
+    for (const r of changedBeginning) {
+      const newBeg = parseFloat(editBeginVals[r.stockId]);
+      await sb("daily_stock_snapshot", "POST", [{
+        branch_id: branchId, material_id: r.materialId, snapshot_date: todayStr(), beginning_qty: newBeg,
+      }], { "Prefer": "resolution=merge-duplicates,return=representation" });
+      if (!lastSbError) {
+        auditLog('INVENTORY_ADJUST', `${r.name} Beginning Inventory corrected: ${r.beginning} → ${newBeg} ${r.unit}${reasonTxt} — via Inventory Summary Report`, currentUser, branchId, branchName);
+      }
+    }
     setSaving(false);
-    toast(`✅ ${changed.length} item(s) na-update!`);
-    setEditMode(false); setEditVals({}); setEditReason("");
+    toast(`✅ ${changedEnding.length + changedBeginning.length} item(s) na-update!`);
+    setEditMode(false); setEditVals({}); setEditBeginVals({}); setEditReason("");
     loadReport();
   }
 
@@ -3264,7 +3284,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
           )}
           {editMode && (
             <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:8,padding:"8px 10px",background:"#eff6ff",borderRadius:8,border:"1px solid #bfdbfe" }}>
-              <span style={{ fontSize:11,color:"#1e40af",fontWeight:700 }}>✏️ Edit Mode — palitan ang Ending qty ng gusto mong i-adjust, tapos Save Changes:</span>
+              <span style={{ fontSize:11,color:"#1e40af",fontWeight:700 }}>✏️ Edit Mode — palitan ang Ending qty{isAdminOwner?" o Beginning (dilaw na border)":""} ng gusto mong i-adjust, tapos Save Changes:</span>
               <input type="text" value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="Reason (optional, applied sa lahat ng babaguhin)" style={{ flex:1,minWidth:140,padding:"6px 9px",borderRadius:7,border:"1.5px solid #bfdbfe",fontSize:11 }}/>
               <button onClick={saveAllEdits} disabled={saving} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:saving?"#94a3b8":"#16a34a",color:"white",fontWeight:700,fontSize:12,cursor:saving?"not-allowed":"pointer" }}>{saving?"Sinasave...":"💾 Save Changes"}</button>
               <button onClick={cancelEdit} disabled={saving} style={{ padding:"7px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>Cancel</button>
@@ -3329,7 +3349,11 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                           <>{r.name} <span style={{ color:"#94a3b8",fontWeight:400 }}>({r.unit})</span>{isDupeRow(r)&&<span style={{ marginLeft:6,fontSize:9,color:"#dc2626",background:"#fef2f2",padding:"1px 6px",borderRadius:10,fontWeight:700 }}>⚠️ duplicate</span>}{r.unreconciled&&<span title="Beginning + Delivered - Used - Spoilage ≠ Ending — may posibleng nawalang log entry" style={{ marginLeft:6,fontSize:9,color:"#b45309",background:"#fffbeb",padding:"1px 6px",borderRadius:10,fontWeight:700 }}>⚠️ di tumutugma</span>}</>
                         )}
                       </td>
-                      <td style={{ padding:"8px 10px",textAlign:"right",color:"#57534e" }}>{r.beginning}</td>
+                      <td style={{ padding:"8px 10px",textAlign:"right",color:"#57534e" }}>
+                        {editMode && isAdminOwner ? (
+                          <input type="number" value={editBeginVals[r.stockId] ?? r.beginning} onChange={e=>setEditBeginVals(p=>({...p,[r.stockId]:e.target.value}))} style={{ width:70,padding:"4px 6px",fontSize:12,fontWeight:700,borderRadius:6,border:"1.5px solid #d97706",textAlign:"right" }}/>
+                        ) : r.beginning}
+                      </td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#16a34a" }}>{r.delivered>0?`+${r.delivered}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#b45309" }}>{r.used>0?`-${r.used}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#dc2626" }}>{r.spoiled>0?`-${r.spoiled}`:"—"}</td>
