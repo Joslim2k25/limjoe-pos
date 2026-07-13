@@ -51,6 +51,23 @@ const auditLog = async (action_type, action_detail, user, branch_id=null, branch
   } catch(e) { console.warn("Audit log failed:", e); }
 };
 
+// ─── PER-BRANCH STOCK TABLES ──────────────────────────────────────────────────
+// Each branch has its own physically-separate table (branch1_stock..branch4_stock —
+// no shared table, no branch_id filter to get it wrong). This helper reads one branch's
+// table (branchId given) or all 4 in parallel (branchId omitted), stamping a client-side
+// branch_id onto each row so the rest of the UI code can treat it like one unified list.
+const BRANCH_STOCK_TABLE = { 1: "branch1_stock", 2: "branch2_stock", 3: "branch3_stock", 4: "branch4_stock" };
+async function fetchBranchStock(branchId, selectCols = "*") {
+  if (branchId) {
+    const data = await sb(`${BRANCH_STOCK_TABLE[branchId]}?select=${selectCols}`);
+    return (data || []).map(r => ({ ...r, branch_id: branchId }));
+  }
+  const results = await Promise.all(BRANCHES.map(b => sb(`${BRANCH_STOCK_TABLE[b.id]}?select=${selectCols}`)));
+  const merged = [];
+  BRANCHES.forEach((b, i) => { (results[i] || []).forEach(r => merged.push({ ...r, branch_id: b.id })); });
+  return merged;
+}
+
 // ─── LOYALTY PROGRAM (self-service, no cashier point entry) ──────────────────
 const LOYALTY_REBATE_RATE = 0.025;
 const LOYALTY_SIGNUP_URL = "https://limjoe-pos.vercel.app/loyalty.html";
@@ -702,10 +719,10 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
   const userRole = currentUser?.role || "cashier";
   const isAdminOwner = ROLE_LEVEL[userRole] >= 3; // admin, owner — full cross-branch access
   const canManageCatalog = ROLE_LEVEL[userRole] >= 2; // manager+ can add new material types
-  const [rows, setRows] = useState([]); // branch_stock rows (joined w/ raw_materials + branches)
+  const [rows, setRows] = useState([]); // per-branch stock rows (from branch{N}_stock, joined w/ raw_materials)
   const [loading, setLoading] = useState(true);
   const [viewAllBranches, setViewAllBranches] = useState(false);
-  const [editId, setEditId] = useState(null); // branch_stock.id being edited
+  const [editId, setEditId] = useState(null); // stock row id being edited
   const [editQty, setEditQty] = useState("");
   const [editReason, setEditReason] = useState("");
   const [filter, setFilter] = useState(initialFilter);
@@ -717,9 +734,9 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
 
   async function loadStock() {
     setLoading(true);
-    const branchFilter = viewAllBranches ? "" : `&branch_id=eq.${currentBranch.id}`;
-    const data = await sb(`branch_stock?select=*,raw_materials(name,unit,category),branches(name)&order=raw_materials(name).asc${branchFilter}`);
-    if (data) setRows(data);
+    const data = await fetchBranchStock(viewAllBranches ? null : currentBranch.id, "*,raw_materials(name,unit,category)");
+    data.sort((a,b)=>(a.raw_materials?.name||"").localeCompare(b.raw_materials?.name||""));
+    setRows(data);
     setLoading(false);
   }
 
@@ -733,16 +750,14 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
     const created = await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: 0, reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
     if (lastSbError || !created?.[0]) { toast("Hindi na-add: "+(lastSbError||"unknown error"), "err"); return; }
     const materialId = created[0].id;
-    // 2) Seed a branch_stock row for every branch so it immediately shows up per-branch.
+    // 2) Seed a stock row in every branch's own table so it immediately shows up per-branch.
     //    Starting qty goes to the branch the person currently has open; other branches start at 0.
     const startQty = parseFloat(newMat.stock_qty || 0);
-    const seedRows = BRANCHES.map(b => ({
-      branch_id: b.id,
+    await Promise.all(BRANCHES.map(b => sb(BRANCH_STOCK_TABLE[b.id], "POST", [{
       material_id: materialId,
       stock_qty: b.id === currentBranch.id ? startQty : 0,
       reorder_pt: parseFloat(newMat.reorder_pt || 0),
-    }));
-    await sb("branch_stock", "POST", seedRows);
+    }])));
     if (startQty > 0) {
       await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${currentBranch.id} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
     }
@@ -758,7 +773,7 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
     if (isNaN(newQty) || newQty < 0) { toast("Invalid qty!", "err"); return; }
     const oldQty = parseFloat(row.stock_qty || 0);
     const delta = newQty - oldQty;
-    await sb(`branch_stock?id=eq.${row.id}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
+    await sb(`${BRANCH_STOCK_TABLE[row.branch_id]}?id=eq.${row.id}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
     if (lastSbError) { toast("Error: "+lastSbError, "err"); return; }
     const branchName = row.branches?.name || BRANCHES.find(b=>b.id===row.branch_id)?.name || `Branch ${row.branch_id}`;
     const reasonTxt = editReason.trim() ? ` — ${editReason.trim()}` : "";
@@ -1417,15 +1432,15 @@ export default function App() {
     setShowExportModal(false);
   }
 
-  // ── INVENTORY LOW STOCK BADGE (per-branch, from branch_stock — NOT the old global raw_materials) ──
+  // ── INVENTORY LOW STOCK BADGE (per-branch, from branch{N}_stock — NOT the old global raw_materials) ──
   const [lowStockCount, setLowStockCount] = useState(0);
   const [lowStockNames, setLowStockNames] = useState([]);
   useEffect(()=>{
     (async()=>{
       // Cashier context: always their own branch. Admin context: the selected branch,
       // or ALL branches summed (each branch's low item counted separately, never merged into one).
-      const branchFilter = env==="cashier" ? `&branch_id=eq.${currentBranch.id}` : (bFilter ? `&branch_id=eq.${bFilter}` : "");
-      const rows = await sb(`branch_stock?select=stock_qty,reorder_pt,raw_materials(name,unit)${branchFilter}`);
+      const targetBranch = env==="cashier" ? currentBranch.id : (bFilter || null);
+      const rows = await fetchBranchStock(targetBranch, "stock_qty,reorder_pt,raw_materials(name,unit)");
       if (rows) {
         const low = rows.filter(r=>r.stock_qty<=r.reorder_pt);
         setLowStockCount(low.length);
@@ -2642,11 +2657,11 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
     const [mats, dels, stockRows] = await Promise.all([
       sb("raw_materials?select=id,name,unit&order=name.asc"),
       sb(`deliveries?branch_id=eq.${currentBranch.id}&order=created_at.desc&limit=20&select=*,raw_materials(name,unit)`),
-      sb(`branch_stock?select=material_id&branch_id=eq.${currentBranch.id}`),
+      sb(`${BRANCH_STOCK_TABLE[currentBranch.id]}?select=material_id`),
     ]);
     if (mats) {
       // De-duplicate materials with the same name (data has legacy duplicate rows).
-      // Prefer whichever id is the one actually tracked in this branch's branch_stock;
+      // Prefer whichever id is the one actually tracked in this branch's own stock table;
       // otherwise just keep the first occurrence.
       const trackedIds = new Set((stockRows||[]).map(r=>r.material_id));
       const byName = new Map();
@@ -2767,7 +2782,7 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
     const [mats, spoils, stockRows] = await Promise.all([
       sb("raw_materials?select=id,name,unit&order=name.asc"),
       sb(`spoilage?branch_id=eq.${currentBranch.id}&order=created_at.desc&limit=20&select=*,raw_materials(name,unit)`),
-      sb(`branch_stock?select=material_id&branch_id=eq.${currentBranch.id}`),
+      sb(`${BRANCH_STOCK_TABLE[currentBranch.id]}?select=material_id`),
     ]);
     if (mats) {
       const trackedIds = new Set((stockRows||[]).map(r=>r.material_id));
@@ -2873,9 +2888,9 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
 
   async function loadStock() {
     setLoading(true);
-    const filter = viewAllBranches ? "" : `&branch_id=eq.${currentBranch.id}`;
-    const data = await sb(`branch_stock?select=*,raw_materials(name,unit,category),branches(name)&order=raw_materials(name).asc${filter}`);
-    if (data) setRows(data);
+    const data = await fetchBranchStock(viewAllBranches ? null : currentBranch.id, "*,raw_materials(name,unit,category)");
+    data.sort((a,b)=>(a.raw_materials?.name||"").localeCompare(b.raw_materials?.name||""));
+    setRows(data);
     setLoading(false);
   }
 
@@ -2896,7 +2911,7 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
           <div style={{ padding:"10px 22px",borderBottom:"1px solid #fde68a" }}>
             <label style={{ display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#44403c",cursor:"pointer" }}>
               <input type="checkbox" checked={viewAllBranches} onChange={e=>setViewAllBranches(e.target.checked)} />
-              Ipakita lahat ng branches (Manager/Admin only)
+              Ipakita lahat ng branches (Admin/Owner only)
             </label>
           </div>
         )}
@@ -2912,7 +2927,7 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:700,fontSize:13,color:"#1c1917" }}>
                         {r.raw_materials?.name || "?"}
-                        {viewAllBranches && <span style={{ fontSize:10,color:"#64748b",marginLeft:6 }}>📍 {r.branches?.name}</span>}
+                        {viewAllBranches && <span style={{ fontSize:10,color:"#64748b",marginLeft:6 }}>📍 {BRANCHES.find(b=>b.id===r.branch_id)?.name}</span>}
                       </div>
                       <div style={{ fontSize:10,color:"#78716c" }}>Reorder at: {r.reorder_pt} {r.raw_materials?.unit}</div>
                     </div>
@@ -2955,7 +2970,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     setLoading(true);
     const startISO = `${todayStr()}T00:00:00+08:00`;
     const [stockRows, logRows] = await Promise.all([
-      sb(`branch_stock?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)&branch_id=eq.${branchId}`),
+      sb(`${BRANCH_STOCK_TABLE[branchId]}?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)`),
       sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}`),
     ]);
     // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage, Adjustment (manual/other).
@@ -3007,7 +3022,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     for (const r of changed) {
       const newQty = parseFloat(editVals[r.stockId]);
       const delta = newQty - r.ending;
-      await sb(`branch_stock?id=eq.${r.stockId}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
+      await sb(`${BRANCH_STOCK_TABLE[branchId]}?id=eq.${r.stockId}`, "PATCH", { stock_qty: newQty, updated_at: new Date().toISOString() });
       if (!lastSbError) {
         await sb("inventory_logs", "POST", [{
           material_id: r.materialId, order_id: null, change_qty: delta,
@@ -3029,13 +3044,11 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     const materialId = created[0].id;
     const startQty = parseFloat(newMat.stock_qty || 0);
     const branch = BRANCHES.find(b=>b.id===branchId);
-    const seedRows = BRANCHES.map(b => ({
-      branch_id: b.id,
+    await Promise.all(BRANCHES.map(b => sb(BRANCH_STOCK_TABLE[b.id], "POST", [{
       material_id: materialId,
       stock_qty: b.id === branchId ? startQty : 0,
       reorder_pt: parseFloat(newMat.reorder_pt || 0),
-    }));
-    await sb("branch_stock", "POST", seedRows);
+    }])));
     if (startQty > 0) {
       await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${branchId} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
     }
