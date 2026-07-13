@@ -1011,6 +1011,7 @@ export default function App() {
 
   // Admin
   const [adminTab, setAdminTab] = useState("dashboard");
+  const [salesLogSearch, setSalesLogSearch] = useState("");
   const [reportDate, setReportDate] = useState(todayStr());
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0,7));
   const [selectedBranch, setSelectedBranch] = useState("all");
@@ -1640,6 +1641,7 @@ export default function App() {
     const cartCount=cart.reduce((s,c)=>s+c.qty,0);
     const branchOrders=getOrders(todayStr(),currentBranch.id);
     const branchSum=calcSum(branchOrders);
+    const last8Items = branchOrders.filter(o=>!o.voided).sort((a,b)=>b.time.localeCompare(a.time)).flatMap(o=>(o.items||[]).map(i=>({...i, orderId:o.id, time:o.time}))).slice(0,8);
     const branchExp=getExps(todayStr(),currentBranch.id).reduce((s,e)=>s+parseFloat(e.amount),0);
     const canManageProducts = ROLE_LEVEL[currentUser?.role||"cashier"] >= 1; // cashier+
     const canAdmin = ROLE_LEVEL[currentUser?.role||"cashier"] >= 3; // admin+
@@ -1703,6 +1705,11 @@ export default function App() {
         <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
           <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:8 }}>📋 X READING — {currentBranch.name}</div>
           {branchSum.top8.length===0?<div style={{ color:C.text3,fontSize:12,textAlign:"center",padding:"10px 0" }}>Wala pang sales</div>:branchSum.top8.map(([n,d],i)=>(<div key={n} style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${C.border}` }}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:700 }}>#{i+1}</span><span style={{ flex:1,marginLeft:8,color:C.text }}>{n}</span><span style={{ color:C.text3 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700,marginLeft:8 }}>₱{d.sales.toFixed(0)}</span></div>))}
+        </div>
+
+        <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow,marginTop:12 }}>
+          <div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:8 }}>🕐 HULING 8 ITEMS NA NABENTA</div>
+          {last8Items.length===0?<div style={{ color:C.text3,fontSize:12,textAlign:"center",padding:"10px 0" }}>Wala pang sales</div>:last8Items.map((it,i)=>(<div key={`${it.orderId}_${i}`} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"5px 0",borderBottom:`1px solid ${C.border}` }}><span style={{ color:C.text3,fontSize:10,width:44,flexShrink:0 }}>{it.time?.slice(0,5)}</span><span style={{ flex:1,color:C.text }}>{it.name} <span style={{ color:C.text3 }}>({it.size})</span></span><span style={{ color:C.text3,marginRight:6 }}>×{it.qty}</span><span style={{ color:C.warning,fontSize:10,fontWeight:700 }}>#{it.orderId}</span></div>))}
         </div>
 
         {/* CASH ON HAND SUBMIT */}
@@ -2012,7 +2019,7 @@ export default function App() {
       return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
     });
 
-    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
+    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
 
     return (
       <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden",color:C.text }}>
@@ -2263,6 +2270,68 @@ export default function App() {
                 <style>{`.row{display:flex;justify-content:space-between;padding:3px 0}.dv{border-top:1px dashed #999;margin:8px 0}.sec{font-size:10px;font-weight:700;letter-spacing:1px;color:#666;margin:6px 0 4px}.big{font-size:15px;font-weight:900}.c{text-align:center}`}</style>
                 <div dangerouslySetInnerHTML={{__html: receiptHTML}}/>
               </div>
+            </div>);
+          })()}
+
+          {adminTab==="saleslog"&&(()=>{
+            const filteredOrders = rOrders.filter(o=>{
+              if (!salesLogSearch.trim()) return true;
+              const q = salesLogSearch.toLowerCase();
+              return String(o.id).includes(q) || o.cashier.toLowerCase().includes(q) || o.branch.toLowerCase().includes(q) || (o.items||[]).some(i=>i.name.toLowerCase().includes(q));
+            }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+            const totalItems = filteredOrders.reduce((s,o)=>s+(o.items?.reduce((s2,i)=>s2+i.qty,0)||0),0);
+            return (<div>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}>
+                <div style={PT}>🧾 Daily Itemized Sales Log</div>
+                <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                  <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                  <select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}>
+                    <option value="all">🏪 Lahat ng Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ position:"relative",marginBottom:14 }}>
+                <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.text3 }}>🔍</span>
+                <input value={salesLogSearch} onChange={e=>setSalesLogSearch(e.target.value)} placeholder="Hanapin: order #, cashier, branch, o item name..." style={{ width:"100%",padding:"9px 12px 9px 32px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box" }}/>
+              </div>
+              <div style={{ display:"flex",gap:8,marginBottom:14,flexWrap:"wrap" }}>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Transactions</div><div style={{ fontWeight:900,fontSize:16,color:C.text }}>{filteredOrders.length}</div></div>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Total Items</div><div style={{ fontWeight:900,fontSize:16,color:C.text }}>{totalItems}</div></div>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Gross Sales</div><div style={{ fontWeight:900,fontSize:16,color:C.success }}>₱{filteredOrders.reduce((s,o)=>s+(o.voided?0:o.total),0).toFixed(0)}</div></div>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Voided</div><div style={{ fontWeight:900,fontSize:16,color:C.danger }}>{filteredOrders.filter(o=>o.voided).length}</div></div>
+              </div>
+              {filteredOrders.length===0?<div style={EM}>Walang transactions na tumugma.</div>:
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11.5,background:"white",borderRadius:10,overflow:"hidden",boxShadow:C.shadow }}>
+                    <thead><tr style={{ background:"#1c1917",color:"white" }}>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Date/Time</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Order #</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Cashier</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Branch</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Items</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Payment</th>
+                      <th style={{ padding:"8px 10px",textAlign:"right" }}>Discount</th>
+                      <th style={{ padding:"8px 10px",textAlign:"right" }}>Total</th>
+                      <th style={{ padding:"8px 10px",textAlign:"center" }}>Status</th>
+                    </tr></thead>
+                    <tbody>
+                      {filteredOrders.map(o=>{ const p=PAYMENT_METHODS.find(pm=>pm.key===o.paymentMethod); return (
+                        <tr key={`${o.date}_${o.id}`} style={{ borderBottom:`1px solid ${C.border}`,opacity:o.voided?0.55:1,background:o.voided?C.dangerBg:"white" }}>
+                          <td style={{ padding:"7px 10px",whiteSpace:"nowrap" }}>{o.date}<br/><span style={{ color:C.text3,fontSize:10 }}>{o.time}</span></td>
+                          <td style={{ padding:"7px 10px",fontWeight:700,color:C.warning }}>#{o.id}</td>
+                          <td style={{ padding:"7px 10px" }}>{o.cashier}</td>
+                          <td style={{ padding:"7px 10px" }}>{o.branch}</td>
+                          <td style={{ padding:"7px 10px",maxWidth:260 }}>{o.items?.map(i=>`${i.name} (${i.size}) ×${i.qty}`).join(", ")}</td>
+                          <td style={{ padding:"7px 10px" }}>{p?.emoji} {p?.label||o.paymentMethod}</td>
+                          <td style={{ padding:"7px 10px",textAlign:"right",color:o.discountAmt?C.warning:C.text3 }}>{o.discountAmt?`-₱${o.discountAmt.toFixed(0)} (${o.discountType})`:"—"}</td>
+                          <td style={{ padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.success }}>₱{o.total.toFixed(2)}</td>
+                          <td style={{ padding:"7px 10px",textAlign:"center" }}>{o.voided?<span style={{ background:C.danger,color:"white",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>VOIDED</span>:<span style={{ background:C.successBg,color:C.success,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>OK</span>}</td>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                </div>
+              }
             </div>);
           })()}
 
