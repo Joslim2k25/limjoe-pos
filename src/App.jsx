@@ -1576,7 +1576,7 @@ export default function App() {
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showSpoilage&&<SpoilageModal onClose={()=>setShowSpoilage(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
-      {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
+      {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"} branchId={env==="admin"?(bFilter||currentBranch.id):currentBranch.id}/>}
       {showTxnDrill&&<TransactionDrillModal date={showTxnDrill.date} type={showTxnDrill.type} filterKey={showTxnDrill.filterKey} label={showTxnDrill.label} branchId={bFilter} onClose={()=>setShowTxnDrill(null)}/>}
       {showDiscountIdLog&&<DiscountIdLogModal onClose={()=>setShowDiscountIdLog(false)} currentBranch={bFilter?BRANCHES.find(b=>b.id===bFilter):null}/>}
     </>
@@ -3013,11 +3013,10 @@ function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
 }
 
 // ─── INVENTORY SUMMARY REPORT (per branch — stock + deliveries + spoilage) ───
-function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, userRole }) {
+function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, userRole, branchId }) {
   const isManager = ROLE_LEVEL[userRole] >= 2;
   const isAdminOwner = ROLE_LEVEL[userRole] >= 3; // Owner/Admin only — matches InventoryModal's edit gate
   const canManageCatalog = ROLE_LEVEL[userRole] >= 2; // manager+ can add new material types
-  const [branchId, setBranchId] = useState(currentBranch?.id || BRANCHES[0].id);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -3029,7 +3028,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [showAddMat, setShowAddMat] = useState(false);
   const [newMat, setNewMat] = useState({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
 
-  useEffect(()=>{ loadReport(); }, [branchId]);
+  useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId]);
 
   // Auto-refresh every 20s so numbers stay live while the report is open —
   // no need to close/reopen to see a sale that just got punched.
@@ -3164,13 +3163,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
             <button onClick={loadReport} disabled={loading} style={{ border:"none",background:"transparent",color:"#2563eb",fontSize:11,fontWeight:700,cursor:loading?"default":"pointer",padding:"2px 4px" }}>{loading?"Nire-refresh...":"🔄 I-refresh ang datos"}</button>
           </div>
           <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
-            {isAdminOwner ? (
-              <select value={branchId} onChange={e=>{ setBranchId(parseInt(e.target.value)); cancelEdit(); }} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
-                {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            ) : (
-              <div style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#f8fafc",color:"#57534e",fontWeight:700 }}>📍 {branch?.name}</div>
-            )}
+            <div style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#f8fafc",color:"#57534e",fontWeight:700 }}>📍 {branch?.name}{isAdminOwner&&<span style={{ fontWeight:400,color:"#94a3b8",marginLeft:4 }}>(piliin sa itaas na branch selector)</span>}</div>
             <div style={{ position:"relative",flex:1,minWidth:160 }}>
               <span style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8" }}>🔍</span>
               <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang material..." style={{ width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
