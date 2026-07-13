@@ -1273,7 +1273,7 @@ export default function App() {
 
   const saveCashOnHand = async (branchId, date, amount) => {
     const key=`${branchId}_${date}`; const nc={...cashOnHand,[key]:amount}; setCashOnHand(nc);
-    try { const r=await sb("cash_on_hand","POST",[{branch_id:branchId,record_date:date,amount,recorded_by:currentUser?.name,updated_at:new Date().toISOString()}],{"Prefer":"resolution=merge-duplicates,return=representation"}); if(r)toast(`Cash on Hand saved ☁️`); else toast(`⚠️ ${lastSbError}`,"err"); } catch(e){toast("Error: "+e.message,"err");}
+    try { const r=await sb("cash_on_hand?on_conflict=branch_id,record_date","POST",[{branch_id:branchId,record_date:date,amount,recorded_by:currentUser?.name,updated_at:new Date().toISOString()}],{"Prefer":"resolution=merge-duplicates,return=representation"}); if(r)toast(`Cash on Hand saved ☁️`); else toast(`⚠️ ${lastSbError}`,"err"); } catch(e){toast("Error: "+e.message,"err");}
   };
 
   const toggleBankDeposit = async (branchId, date) => {
@@ -1281,7 +1281,7 @@ export default function App() {
     const nowIso = new Date().toISOString();
     const nb={...bankDeposit,[key]:{confirmed:newVal,by:currentUser?.name,at:nowIso}}; setBankDeposit(nb);
     try {
-      const r=await sb("bank_deposit_status","POST",[{branch_id:branchId,record_date:date,confirmed:newVal,confirmed_by:currentUser?.name,confirmed_at:nowIso,updated_at:nowIso}],{"Prefer":"resolution=merge-duplicates,return=representation"});
+      const r=await sb("bank_deposit_status?on_conflict=branch_id,record_date","POST",[{branch_id:branchId,record_date:date,confirmed:newVal,confirmed_by:currentUser?.name,confirmed_at:nowIso,updated_at:nowIso}],{"Prefer":"resolution=merge-duplicates,return=representation"});
       if(r){ toast(newVal?`✅ Bank deposit confirmed`:`Bank deposit unconfirmed`); auditLog(newVal?'BANK_DEPOSIT_CONFIRM':'BANK_DEPOSIT_UNCONFIRM', `${BRANCHES.find(b=>b.id===branchId)?.name} — ${date}`, currentUser, branchId, BRANCHES.find(b=>b.id===branchId)?.name); }
       else toast(`⚠️ ${lastSbError}`,"err");
     } catch(e){ toast("Error: "+e.message,"err"); }
@@ -3153,15 +3153,21 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     }
     // Beginning Inventory — Admin/Owner only, corrects the locked daily snapshot directly
     // (e.g. to match a physical count), separate from the Used/Delivered/Spoilage ledger.
+    // PostgREST needs the conflict target spelled out via on_conflict= for a non-PK unique
+    // constraint — without it, 'resolution=merge-duplicates' silently 409s instead of updating.
+    let beginningFailed = false;
     for (const r of changedBeginning) {
       const newBeg = parseFloat(editBeginVals[r.stockId]);
-      await sb("daily_stock_snapshot", "POST", [{
+      await sb(`daily_stock_snapshot?on_conflict=branch_id,material_id,snapshot_date`, "POST", [{
         branch_id: branchId, material_id: r.materialId, snapshot_date: todayStr(), beginning_qty: newBeg,
       }], { "Prefer": "resolution=merge-duplicates,return=representation" });
       if (!lastSbError) {
         auditLog('INVENTORY_ADJUST', `${r.name} Beginning Inventory corrected: ${r.beginning} → ${newBeg} ${r.unit}${reasonTxt} — via Inventory Summary Report`, currentUser, branchId, branchName);
+      } else {
+        beginningFailed = true;
       }
     }
+    if (beginningFailed) toast("⚠️ May Beginning value na hindi na-save — pakisubukan ulit.", "err");
     setSaving(false);
     toast(`✅ ${changedEnding.length + changedBeginning.length} item(s) na-update!`);
     setEditMode(false); setEditVals({}); setEditBeginVals({}); setEditReason("");
