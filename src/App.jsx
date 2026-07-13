@@ -3043,6 +3043,9 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [saving, setSaving] = useState(false);
   const [showAddMat, setShowAddMat] = useState(false);
   const [newMat, setNewMat] = useState({ name:"", category:"ingredient", unit:"pcs", stock_qty:"", reorder_pt:"", cost_per_unit:"" });
+  const [renamingId, setRenamingId] = useState(null); // materialId being renamed
+  const [renameVal, setRenameVal] = useState("");
+  const [deletingId, setDeletingId] = useState(null); // materialId pending delete confirmation
 
   useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId]);
 
@@ -3158,8 +3161,43 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     loadReport();
   }
 
+  async function renameMaterial(r) {
+    const newName = renameVal.trim();
+    if (!newName) { toast("Lagyan ng pangalan!", "err"); return; }
+    if (newName === r.name) { setRenamingId(null); return; }
+    await sb(`raw_materials?id=eq.${r.materialId}`, "PATCH", { name: newName });
+    if (lastSbError) { toast("Hindi na-rename: "+lastSbError, "err"); return; }
+    auditLog('INVENTORY_RENAME', `Material renamed: "${r.name}" → "${newName}"`, currentUser, branchId, BRANCHES.find(b=>b.id===branchId)?.name);
+    toast("✅ Na-rename!");
+    setRenamingId(null); setRenameVal("");
+    loadReport();
+  }
+
+  // Removing a raw material entirely (e.g. a true duplicate) requires clearing every table
+  // that references it first — branch1-4_stock, deliveries, spoilage, and the daily snapshot
+  // all block the delete otherwise. product_ingredients and inventory_logs cascade automatically.
+  async function deleteMaterial(r) {
+    setSaving(true);
+    for (const tbl of [BRANCH_STOCK_TABLE[1], BRANCH_STOCK_TABLE[2], BRANCH_STOCK_TABLE[3], BRANCH_STOCK_TABLE[4]]) {
+      await sb(`${tbl}?material_id=eq.${r.materialId}`, "DELETE");
+    }
+    await sb(`deliveries?material_id=eq.${r.materialId}`, "DELETE");
+    await sb(`spoilage?material_id=eq.${r.materialId}`, "DELETE");
+    await sb(`daily_stock_snapshot?material_id=eq.${r.materialId}`, "DELETE");
+    await sb(`raw_materials?id=eq.${r.materialId}`, "DELETE");
+    setSaving(false);
+    if (lastSbError) { toast("Hindi na-delete: "+lastSbError, "err"); return; }
+    auditLog('INVENTORY_DELETE', `Material deleted: "${r.name}" (${r.unit}) — Ending stock sa Branch ${branchId} noong delete: ${r.ending}`, currentUser, branchId, BRANCHES.find(b=>b.id===branchId)?.name);
+    toast("✅ Natanggal ang material!");
+    setDeletingId(null);
+    loadReport();
+  }
+
   const baseFiltered = filter==="all" ? rows : filter==="low" ? rows.filter(r=>r.isLow) : filter==="spoiled" ? rows.filter(r=>r.spoiled>0) : rows;
   const filtered = searchMat.trim() ? baseFiltered.filter(r=>r.name.toLowerCase().includes(searchMat.toLowerCase())) : baseFiltered;
+  const dupeCounts = {};
+  rows.forEach(r=>{ const k=r.name.trim().toLowerCase(); dupeCounts[k]=(dupeCounts[k]||0)+1; });
+  function isDupeRow(r) { return dupeCounts[r.name.trim().toLowerCase()] > 1; }
   const totalSpoilCost = rows.reduce((s,r)=>s+r.spoilCost,0);
   const totalSpoiledItems = rows.filter(r=>r.spoiled>0).length;
   const lowCount = rows.filter(r=>r.isLow).length;
@@ -3274,12 +3312,23 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                     <th style={{ padding:"8px 10px",textAlign:"right" }}>Ending</th>
                     <th style={{ padding:"8px 10px",textAlign:"right" }}>Reorder At</th>
                     <th style={{ padding:"8px 10px",textAlign:"center" }}>Status</th>
+                    {isAdminOwner && <th style={{ padding:"8px 10px",textAlign:"center" }}>Manage</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(r=>(
                     <tr key={r.materialId} style={{ borderBottom:"1px solid #f1f5f9",background:r.isLow?"#fef2f2":"white" }}>
-                      <td style={{ padding:"8px 10px",fontWeight:700 }}>{r.name} <span style={{ color:"#94a3b8",fontWeight:400 }}>({r.unit})</span>{r.unreconciled&&<span title="Beginning + Delivered - Used - Spoilage ≠ Ending — may posibleng nawalang log entry" style={{ marginLeft:6,fontSize:9,color:"#b45309",background:"#fffbeb",padding:"1px 6px",borderRadius:10,fontWeight:700 }}>⚠️ di tumutugma</span>}</td>
+                      <td style={{ padding:"8px 10px",fontWeight:700 }}>
+                        {renamingId===r.materialId ? (
+                          <div style={{ display:"flex",gap:4,alignItems:"center" }}>
+                            <input autoFocus value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&renameMaterial(r)} style={{ padding:"3px 6px",fontSize:12,borderRadius:5,border:"1.5px solid #2563eb",width:140 }}/>
+                            <button onClick={()=>renameMaterial(r)} style={{ border:"none",background:"#16a34a",color:"white",borderRadius:5,padding:"2px 7px",fontSize:10,fontWeight:700,cursor:"pointer" }}>✓</button>
+                            <button onClick={()=>{ setRenamingId(null); setRenameVal(""); }} style={{ border:"none",background:"#e2e8f0",borderRadius:5,padding:"2px 7px",fontSize:10,cursor:"pointer" }}>✕</button>
+                          </div>
+                        ) : (
+                          <>{r.name} <span style={{ color:"#94a3b8",fontWeight:400 }}>({r.unit})</span>{isDupeRow(r)&&<span style={{ marginLeft:6,fontSize:9,color:"#dc2626",background:"#fef2f2",padding:"1px 6px",borderRadius:10,fontWeight:700 }}>⚠️ duplicate</span>}{r.unreconciled&&<span title="Beginning + Delivered - Used - Spoilage ≠ Ending — may posibleng nawalang log entry" style={{ marginLeft:6,fontSize:9,color:"#b45309",background:"#fffbeb",padding:"1px 6px",borderRadius:10,fontWeight:700 }}>⚠️ di tumutugma</span>}</>
+                        )}
+                      </td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#57534e" }}>{r.beginning}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#16a34a" }}>{r.delivered>0?`+${r.delivered}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#b45309" }}>{r.used>0?`-${r.used}`:"—"}</td>
@@ -3293,6 +3342,22 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                       </td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#78716c" }}>{r.reorderPt}</td>
                       <td style={{ padding:"8px 10px",textAlign:"center" }}>{r.isLow?<span style={{ background:"#fef2f2",color:"#dc2626",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>⚠️ LOW</span>:<span style={{ background:"#f0fdf4",color:"#16a34a",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>OK</span>}</td>
+                      {isAdminOwner && (
+                        <td style={{ padding:"8px 10px",textAlign:"center" }}>
+                          {deletingId===r.materialId ? (
+                            <div style={{ display:"flex",gap:4,alignItems:"center",justifyContent:"center",flexWrap:"wrap" }}>
+                              <span style={{ fontSize:10,color:"#dc2626",fontWeight:700 }}>Sigurado ka na?</span>
+                              <button onClick={()=>deleteMaterial(r)} disabled={saving} style={{ border:"none",background:"#dc2626",color:"white",borderRadius:5,padding:"3px 9px",fontSize:10,fontWeight:700,cursor:saving?"default":"pointer" }}>{saving?"...":"Oo, tanggalin"}</button>
+                              <button onClick={()=>setDeletingId(null)} style={{ border:"1px solid #e2e8f0",background:"white",borderRadius:5,padding:"3px 9px",fontSize:10,cursor:"pointer" }}>Hindi</button>
+                            </div>
+                          ) : (
+                            <div style={{ display:"flex",gap:6,justifyContent:"center" }}>
+                              <button onClick={()=>{ setRenamingId(r.materialId); setRenameVal(r.name); }} title="Palitan ang pangalan" style={{ border:"none",background:"transparent",cursor:"pointer",fontSize:13 }}>✏️</button>
+                              <button onClick={()=>setDeletingId(r.materialId)} title="Tanggalin ang material" style={{ border:"none",background:"transparent",cursor:"pointer",fontSize:13 }}>🗑️</button>
+                            </div>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
