@@ -750,14 +750,14 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
     const created = await sb("raw_materials", "POST", [{ name: newMat.name.trim(), category: newMat.category, unit: newMat.unit, stock_qty: 0, reorder_pt: parseFloat(newMat.reorder_pt||0), cost_per_unit: parseFloat(newMat.cost_per_unit||0) }]);
     if (lastSbError || !created?.[0]) { toast("Hindi na-add: "+(lastSbError||"unknown error"), "err"); return; }
     const materialId = created[0].id;
-    // 2) Seed a stock row in every branch's own table so it immediately shows up per-branch.
-    //    Starting qty goes to the branch the person currently has open; other branches start at 0.
+    // 2) Seed a stock row ONLY in the current branch's own table — other branches won't see
+    //    or be affected by this new material at all until they add it themselves.
     const startQty = parseFloat(newMat.stock_qty || 0);
-    await Promise.all(BRANCHES.map(b => sb(BRANCH_STOCK_TABLE[b.id], "POST", [{
+    await sb(BRANCH_STOCK_TABLE[currentBranch.id], "POST", [{
       material_id: materialId,
-      stock_qty: b.id === currentBranch.id ? startQty : 0,
+      stock_qty: startQty,
       reorder_pt: parseFloat(newMat.reorder_pt || 0),
-    }])));
+    }]);
     if (startQty > 0) {
       await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${currentBranch.id} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
     }
@@ -858,7 +858,7 @@ function InventoryModal({ onClose, toast, currentUser, currentBranch, initialFil
                 <input value={newMat.cost_per_unit} onChange={e=>setNewMat(p=>({...p,cost_per_unit:e.target.value}))} type="number" placeholder="0" style={{ ...InputStyle,width:"100%",boxSizing:"border-box" }}/>
               </div>
             </div>
-            <div style={{ fontSize:10,color:C.text3,marginBottom:8 }}>Gagawa ito ng stock record sa LAHAT ng 4 branches (0 sa iba, starting qty sa {currentBranch.name}).</div>
+            <div style={{ fontSize:10,color:C.text3,marginBottom:8 }}>Gagawa ito ng stock record para lang sa {currentBranch.name} — hindi maaapektuhan ang ibang branches.</div>
             <div style={{ display:"flex",justifyContent:"flex-end" }}>
               <button onClick={addMaterial} style={PriBtn(C.warning)}>Save Material</button>
             </div>
@@ -3126,11 +3126,12 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     const materialId = created[0].id;
     const startQty = parseFloat(newMat.stock_qty || 0);
     const branch = BRANCHES.find(b=>b.id===branchId);
-    await Promise.all(BRANCHES.map(b => sb(BRANCH_STOCK_TABLE[b.id], "POST", [{
+    // Seed ONLY the selected branch's table — other branches stay untouched until they add it too.
+    await sb(BRANCH_STOCK_TABLE[branchId], "POST", [{
       material_id: materialId,
-      stock_qty: b.id === branchId ? startQty : 0,
+      stock_qty: startQty,
       reorder_pt: parseFloat(newMat.reorder_pt || 0),
-    }])));
+    }]);
     if (startQty > 0) {
       await sb("inventory_logs", "POST", [{ material_id: materialId, order_id: null, change_qty: startQty, note: `Branch ${branchId} - New material initial stock: +${startQty} (${newMat.name.trim()})` }]);
     }
