@@ -2962,6 +2962,13 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
 
   useEffect(()=>{ loadReport(); }, [branchId]);
 
+  // Auto-refresh every 20s so numbers stay live while the report is open —
+  // no need to close/reopen to see a sale that just got punched.
+  useEffect(()=>{
+    const interval = setInterval(()=>{ if (!editMode) loadReport(); }, 20000);
+    return ()=>clearInterval(interval);
+  }, [branchId, editMode]);
+
   async function loadReport() {
     setLoading(true);
     const startISO = `${todayStr()}T00:00:00+08:00`;
@@ -3072,6 +3079,9 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
               <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>Kasalukuyang araw — {todayStr()}</div>
             </div>
             <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
+          </div>
+          <div style={{ display:"flex",justifyContent:"flex-end",marginTop:-6,marginBottom:4 }}>
+            <button onClick={loadReport} disabled={loading} style={{ border:"none",background:"transparent",color:"#2563eb",fontSize:11,fontWeight:700,cursor:loading?"default":"pointer",padding:"2px 4px" }}>{loading?"Nire-refresh...":"🔄 I-refresh ang datos"}</button>
           </div>
           <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
             {isAdminOwner ? (
