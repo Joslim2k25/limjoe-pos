@@ -1206,8 +1206,10 @@ export default function App() {
         const itemsResult=await sb("order_items","POST", itemsWithFinal.map(i=>({ order_id:sbOrder.id, item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
         if (itemsResult) {
           savedToCloud=true;
-          // ── AUTO-DEDUCT INVENTORY ──
-          await sb("rpc/deduct_inventory_for_order", "POST", { p_order_id: sbOrder.id });
+          // Inventory auto-deducts via the trg_deduct_inventory DB trigger on order_items —
+          // no separate RPC call needed here (the old deduct_inventory_for_order RPC was
+          // disabled at the DB level to fix a double-deduction bug; this line used to still
+          // call it, which was harmless but dead weight — removed).
         } else errMsg="order_items insert failed: "+lastSbError;
       } else errMsg="orders insert failed: "+lastSbError;
     } catch(e) { errMsg="Exception: "+e.message; }
