@@ -1682,9 +1682,6 @@ export default function App() {
           <button onClick={()=>setShowSpoilage(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:"2px solid #dc2626",borderRadius:12,color:"#dc2626",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>🗑️</span><span>Report Spoilage</span>
           </button>
-          <button onClick={()=>setShowBranchStock(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
-            <span style={{ fontSize:20 }}>📊</span><span>Branch Stock</span>
-          </button>
           {canAdmin&&<button onClick={()=>setShowBulkUpload(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📤</span><span>Bulk Upload</span><span style={{ fontSize:9,opacity:0.7 }}>Excel</span>
           </button>}
@@ -3075,9 +3072,13 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
             <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
           </div>
           <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
-            <select value={branchId} onChange={e=>{ setBranchId(parseInt(e.target.value)); cancelEdit(); }} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
-              {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            {isAdminOwner ? (
+              <select value={branchId} onChange={e=>{ setBranchId(parseInt(e.target.value)); cancelEdit(); }} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
+                {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            ) : (
+              <div style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#f8fafc",color:"#57534e",fontWeight:700 }}>📍 {branch?.name}</div>
+            )}
             <div style={{ position:"relative",flex:1,minWidth:160 }}>
               <span style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8" }}>🔍</span>
               <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang material..." style={{ width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
