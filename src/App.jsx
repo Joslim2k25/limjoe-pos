@@ -3046,30 +3046,32 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
       sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}`),
       sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${todayStr()}`),
     ]);
-    // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage, Adjustment (manual/other).
+    // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage.
+    // Manual edits / initial-stock entries are intentionally NOT bucketed here — Used and
+    // Spoilage are the only two things that subtract from stock. Anything else that changed
+    // stock outside those two paths will show up via the unreconciled check below instead.
     const agg = {};
     (logRows||[]).forEach(l=>{
       const id = l.material_id;
-      if (!agg[id]) agg[id] = { used:0, delivered:0, spoiled:0, adjustment:0 };
+      if (!agg[id]) agg[id] = { used:0, delivered:0, spoiled:0 };
       const note = l.note || "";
       const chg = parseFloat(l.change_qty) || 0;
       if (/auto-deduct/i.test(note)) agg[id].used += Math.abs(chg);
       else if (/delivery received/i.test(note)) agg[id].delivered += chg;
       else if (/spoilage\/waste/i.test(note)) agg[id].spoiled += Math.abs(chg);
-      else agg[id].adjustment += chg;
     });
     // Real captured snapshot (taken automatically at each material's first change today) —
     // not reverse-calculated, so it stays correct even if a log entry is ever missed.
     const snapMap = {};
     (snapshotRows||[]).forEach(s=>{ snapMap[s.material_id] = parseFloat(s.beginning_qty); });
     const built = (stockRows||[]).map(r=>{
-      const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0, adjustment:0 };
+      const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0 };
       const cost = r.raw_materials?.cost_per_unit || 0;
       const ending = parseFloat(r.stock_qty);
       // Fall back to reverse-calculation only if no snapshot exists yet (shouldn't happen after
       // the backfill, but covers a brand-new material added mid-day with no prior snapshot row).
-      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (ending - a.delivered + a.used + a.spoiled - a.adjustment);
-      const expectedEnding = beginning + a.delivered - a.used - a.spoiled + a.adjustment;
+      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (ending - a.delivered + a.used + a.spoiled);
+      const expectedEnding = beginning + a.delivered - a.used - a.spoiled;
       const unreconciled = Math.abs(expectedEnding - ending) > 0.01;
       return {
         stockId: r.id,
@@ -3077,7 +3079,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
         name: r.raw_materials?.name || "?",
         unit: r.raw_materials?.unit || "",
         category: r.raw_materials?.category || "ingredient",
-        beginning, delivered: a.delivered, used: a.used, spoiled: a.spoiled, adjustment: a.adjustment,
+        beginning, delivered: a.delivered, used: a.used, spoiled: a.spoiled,
         ending, unreconciled,
         reorderPt: parseFloat(r.reorder_pt),
         spoilCost: a.spoiled*cost,
