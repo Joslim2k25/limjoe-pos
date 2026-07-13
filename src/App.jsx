@@ -3041,9 +3041,10 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   async function loadReport() {
     setLoading(true);
     const startISO = `${todayStr()}T00:00:00+08:00`;
-    const [stockRows, logRows] = await Promise.all([
+    const [stockRows, logRows, snapshotRows] = await Promise.all([
       sb(`${BRANCH_STOCK_TABLE[branchId]}?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)`),
       sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}`),
+      sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${todayStr()}`),
     ]);
     // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage, Adjustment (manual/other).
     const agg = {};
@@ -3057,11 +3058,19 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
       else if (/spoilage\/waste/i.test(note)) agg[id].spoiled += Math.abs(chg);
       else agg[id].adjustment += chg;
     });
+    // Real captured snapshot (taken automatically at each material's first change today) —
+    // not reverse-calculated, so it stays correct even if a log entry is ever missed.
+    const snapMap = {};
+    (snapshotRows||[]).forEach(s=>{ snapMap[s.material_id] = parseFloat(s.beginning_qty); });
     const built = (stockRows||[]).map(r=>{
       const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0, adjustment:0 };
       const cost = r.raw_materials?.cost_per_unit || 0;
       const ending = parseFloat(r.stock_qty);
-      const beginning = ending - a.delivered + a.used + a.spoiled - a.adjustment;
+      // Fall back to reverse-calculation only if no snapshot exists yet (shouldn't happen after
+      // the backfill, but covers a brand-new material added mid-day with no prior snapshot row).
+      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (ending - a.delivered + a.used + a.spoiled - a.adjustment);
+      const expectedEnding = beginning + a.delivered - a.used - a.spoiled + a.adjustment;
+      const unreconciled = Math.abs(expectedEnding - ending) > 0.01;
       return {
         stockId: r.id,
         materialId: r.material_id,
@@ -3069,7 +3078,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
         unit: r.raw_materials?.unit || "",
         category: r.raw_materials?.category || "ingredient",
         beginning, delivered: a.delivered, used: a.used, spoiled: a.spoiled, adjustment: a.adjustment,
-        ending,
+        ending, unreconciled,
         reorderPt: parseFloat(r.reorder_pt),
         spoilCost: a.spoiled*cost,
         isLow: ending <= parseFloat(r.reorder_pt),
@@ -3258,7 +3267,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                 <tbody>
                   {filtered.map(r=>(
                     <tr key={r.materialId} style={{ borderBottom:"1px solid #f1f5f9",background:r.isLow?"#fef2f2":"white" }}>
-                      <td style={{ padding:"8px 10px",fontWeight:700 }}>{r.name} <span style={{ color:"#94a3b8",fontWeight:400 }}>({r.unit})</span></td>
+                      <td style={{ padding:"8px 10px",fontWeight:700 }}>{r.name} <span style={{ color:"#94a3b8",fontWeight:400 }}>({r.unit})</span>{r.unreconciled&&<span title="Beginning + Delivered - Used - Spoilage ≠ Ending — may posibleng nawalang log entry" style={{ marginLeft:6,fontSize:9,color:"#b45309",background:"#fffbeb",padding:"1px 6px",borderRadius:10,fontWeight:700 }}>⚠️ di tumutugma</span>}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#57534e" }}>{r.beginning}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#16a34a" }}>{r.delivered>0?`+${r.delivered}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#b45309" }}>{r.used>0?`-${r.used}`:"—"}</td>
