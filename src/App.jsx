@@ -1047,6 +1047,16 @@ export default function App() {
     (async()=>{ await loadFromSupabase(); await loadProducts(); setLoading(false); })();
   },[]);
 
+  // Cashier home screen (X Reading, Last 8 Items, low stock badge, etc.) all read from
+  // salesData/expenses/etc., which are only fetched once on mount otherwise — a cashier who
+  // keeps the tab open, or whose shift started before other sales for the day existed, would
+  // keep seeing stale "Wala pang sales" even though real orders exist. Keep it live.
+  useEffect(()=>{
+    if (env !== "cashier") return;
+    const interval = setInterval(()=>{ loadFromSupabase(); }, 30000);
+    return ()=>clearInterval(interval);
+  },[env]);
+
   // ── LOAD LOYALTY MEMBERS (on-demand, when admin opens the tab) ────────────
   const loadLoyaltyMembers = async () => {
     setLoyaltyMembersLoading(true);
