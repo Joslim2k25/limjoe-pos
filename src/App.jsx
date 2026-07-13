@@ -2230,8 +2230,24 @@ export default function App() {
 
               <div style={SEC}>SALES PER BRANCH TODAY</div>
               {BRANCHES.map(b=>{ const bOrds=getOrders(todayStr(),b.id); const bSum=calcSum(bOrds); const bExp=getExps(todayStr(),b.id).reduce((s,e)=>s+parseFloat(e.amount),0); return(<div key={b.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"white",borderRadius:10,marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:13 }}>🏪 {b.name}</div><div style={{ fontSize:10,color:C.text3 }}>{bSum.txns} orders · Exp: ₱{bExp.toFixed(0)}</div></div><div style={{ textAlign:"right" }}><div style={{ fontWeight:900,fontSize:15,color:C.success }}>₱{bSum.gross.toFixed(0)}</div><div style={{ fontSize:10,color:C.warning }}>Net: ₱{(bSum.gross-bExp).toFixed(0)}</div></div></div>); })}
-              <div style={SEC}>🏆 Top 8 Items Today</div>
-              {todaySum.top8.length===0?<div style={EM}>Wala pang sales</div>:todaySum.top8.map(([n,d],i)=>(<div key={n} style={TR}><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:22 }}>#{i+1}</span><span style={{ flex:1,fontSize:12 }}>{n}</span><span style={{ color:C.text3,fontSize:11 }}>×{d.qty}</span><span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></div>))}
+              <div style={SEC}>🏆 Top 8 Items Today — kada Branch</div>
+              {BRANCHES.map(b=>{
+                const bOrds = getOrders(todayStr(), b.id);
+                const bSum = calcSum(bOrds);
+                return (
+                  <div key={b.id} style={{ background:"white",borderRadius:10,padding:"10px 12px",marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                    <div style={{ fontWeight:700,fontSize:12,color:C.text,marginBottom:6 }}>🏪 {b.name}</div>
+                    {bSum.top8.length===0?<div style={{ fontSize:11,color:C.text3,padding:"4px 0" }}>Wala pang sales</div>:bSum.top8.map(([n,d],i)=>(
+                      <div key={n} style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0",borderBottom:i<bSum.top8.length-1?`1px solid ${C.border}`:"none" }}>
+                        <span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:20 }}>#{i+1}</span>
+                        <span style={{ flex:1,color:C.text }}>{n}</span>
+                        <span style={{ color:C.text3,marginRight:8 }}>×{d.qty}</span>
+                        <span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           )}
 
