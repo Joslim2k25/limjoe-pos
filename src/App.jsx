@@ -1672,8 +1672,8 @@ export default function App() {
           <button onClick={()=>setShowProductEditor(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.info}`,borderRadius:12,color:C.info,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>🛍️</span><span>Products</span><span style={{ fontSize:9,opacity:0.7 }}>{canAdmin?"Add/Edit/Delete":"Edit only"}</span>
           </button>
-          <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
-            <span style={{ fontSize:20 }}>📦</span><span>Inventory</span>
+          <button onClick={()=>setShowInventorySummary(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+            <span style={{ fontSize:20 }}>📋</span><span>Inventory</span>
                {lowStockCount>0&&<span style={{ fontSize:9,background:C.danger,color:"white",padding:"1px 6px",borderRadius:20 }}>⚠️ {lowStockCount} low</span>}
           </button>
           <button onClick={()=>setShowDelivery(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:"2px solid #16a34a",borderRadius:12,color:"#16a34a",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
@@ -1691,9 +1691,6 @@ export default function App() {
         </div>
 
         {currentUser?.role==="manager"&&(<button onClick={()=>setPosScreen("monthly")} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12 }}>📅 Monthly Report — {currentBranch.name}</button>)}
-        <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ width:"100%",padding:"14px",background:"white",border:`2px solid ${lowStockCount>0?C.danger:C.warning}`,borderRadius:12,color:lowStockCount>0?C.danger:C.warning,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
-          📦 Inventory {lowStockCount>0&&<span style={{ background:C.danger,color:"white",borderRadius:20,padding:"1px 8px",fontSize:12 }}>{lowStockCount} Low Stock!</span>}
-        </button>
         {lowStockCount>0&&(
           <div style={{ background:C.dangerBg,borderRadius:12,padding:"12px 14px",marginBottom:12,border:`1px solid ${C.danger}` }}>
             <div style={{ fontSize:13,fontWeight:800,color:C.danger,marginBottom:6 }}>⚠️ Kailangan nang i-replenish!</div>
@@ -1829,7 +1826,7 @@ export default function App() {
           <button onClick={()=>setPosScreen("main")} style={{ padding:"5px 9px",background:C.bg3,border:`1px solid ${C.border}`,borderRadius:6,color:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>←</button>
           <div style={{ flex:1 }}><div style={{ fontSize:13,fontWeight:900,color:C.primary }}>LIMJOE · {currentBranch.name}</div><div style={{ fontSize:9,color:C.text3 }}>{currentUser?.emoji} {currentUser?.name}</div></div>
           {cartCount>0&&<div style={{ background:C.primary,color:"white",borderRadius:20,padding:"3px 10px",fontWeight:900,fontSize:12 }}>{cartCount} items</div>}
-          <button onClick={()=>lowStockCount>0?setShowBranchStock(true):openInventory("all")} style={{ padding:"5px 9px",background:lowStockCount>0?C.dangerBg:C.bg3,border:`1px solid ${lowStockCount>0?C.danger:C.border}`,borderRadius:6,color:lowStockCount>0?C.danger:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>📦{lowStockCount>0?` ${lowStockCount}!`:""}</button>
+          <button onClick={()=>setShowInventorySummary(true)} style={{ padding:"5px 9px",background:lowStockCount>0?C.dangerBg:C.bg3,border:`1px solid ${lowStockCount>0?C.danger:C.border}`,borderRadius:6,color:lowStockCount>0?C.danger:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>📦{lowStockCount>0?` ${lowStockCount}!`:""}</button>
         </div>
 
         <div style={{ background:"white",borderBottom:`1px solid ${C.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",flexShrink:0 }}>
