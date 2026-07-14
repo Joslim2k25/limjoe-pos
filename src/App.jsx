@@ -371,7 +371,7 @@ function BulkUploadModal({ onClose, toast, onReloadProducts, onReloadInventory }
     try {
       if (activeType === "products") {
         for (const row of preview.valid) {
-          const { error } = await sb("products", "POST",
+          const { error } = await sb("products?on_conflict=name", "POST",
             [{ name: String(row.product_name).trim(), category: String(row.category).trim(), price: parseFloat(row.price), description: row.description ? String(row.description).trim() : null, is_available: String(row.is_available).toUpperCase()==="TRUE" }],
             { "Prefer": "resolution=merge-duplicates,return=representation" }
           ) || {};
@@ -380,23 +380,30 @@ function BulkUploadModal({ onClose, toast, onReloadProducts, onReloadInventory }
         }
         onReloadProducts?.();
       } else {
-        // Upsert raw_materials
+        // Upsert raw_materials — no unique constraint on name in the DB, so look up by
+        // trimmed name first and PATCH if found (prevents the duplicate-row bug from re-uploads).
         for (const row of preview.valid) {
-          await sb("raw_materials", "POST",
-            [{ name: String(row.material_name).trim(), category: String(row.category).trim(), unit: String(row.unit).trim(), stock_qty: parseFloat(row.stock_qty), reorder_pt: parseFloat(row.reorder_point), cost_per_unit: row.cost_per_unit ? parseFloat(row.cost_per_unit) : 0 }],
-            { "Prefer": "resolution=merge-duplicates,return=representation" }
-          );
+          const materialName = String(row.material_name).trim();
+          const existing = await sb(`raw_materials?name=eq.${encodeURIComponent(materialName)}&select=id`);
+          const payload = { name: materialName, category: String(row.category).trim(), unit: String(row.unit).trim(), reorder_pt: parseFloat(row.reorder_point), cost_per_unit: row.cost_per_unit ? parseFloat(row.cost_per_unit) : 0 };
+          if (existing?.[0]) {
+            await sb(`raw_materials?id=eq.${existing[0].id}`, "PATCH", payload);
+          } else {
+            await sb("raw_materials", "POST", [{ ...payload, stock_qty: parseFloat(row.stock_qty) }]);
+          }
           if (lastSbError) summary.errors.push(`${row.material_name}: ${lastSbError}`);
           else summary.updated++;
         }
-        // Upsert recipes
+        // Upsert recipes — size (Large/Medium) is required: the sale-deduction trigger
+        // matches product_ingredients by exact size, so a recipe row without it never fires.
         for (const row of preview.recipeRows || []) {
-          if (!row.product_name || !row.material_name || !row.qty_per_unit) continue;
+          if (!row.product_name || !row.material_name || !row.qty_per_unit || !row.size) { if (row.product_name) summary.errors.push(`Recipe skipped: "${row.product_name}" — kulang ang size (Large/Medium).`); continue; }
           const prod = await sb(`products?name=eq.${encodeURIComponent(String(row.product_name).trim())}&select=id`);
           const mat = await sb(`raw_materials?name=eq.${encodeURIComponent(String(row.material_name).trim())}&select=id`);
           if (!prod?.[0] || !mat?.[0]) { summary.errors.push(`Recipe skipped: "${row.product_name}" o "${row.material_name}" hindi makita.`); continue; }
-          await sb("product_ingredients", "POST",
-            [{ product_id: prod[0].id, material_id: mat[0].id, qty_per_unit: parseFloat(row.qty_per_unit) }],
+          const sizeNorm = String(row.size).trim().toLowerCase()==="l"||String(row.size).trim().toLowerCase()==="large" ? "large" : "medium";
+          await sb("product_ingredients?on_conflict=product_id,material_id,size", "POST",
+            [{ product_id: prod[0].id, material_id: mat[0].id, size: sizeNorm, qty_per_unit: parseFloat(row.qty_per_unit) }],
             { "Prefer": "resolution=merge-duplicates,return=representation" }
           );
           if (lastSbError) summary.errors.push(`Recipe ${row.product_name}→${row.material_name}: ${lastSbError}`);
@@ -406,6 +413,42 @@ function BulkUploadModal({ onClose, toast, onReloadProducts, onReloadInventory }
       }
     } catch (err) { summary.errors.push("Unexpected: " + err.message); }
     setResult(summary); setUploading(false); setStep("done");
+  }
+
+  function downloadTemplate() {
+    const wb = XLSX.utils.book_new();
+    if (activeType === "products") {
+      const aoa = [
+        ["LIMJOE — Products & Prices Upload Template"],
+        ["Punan ang mga hilera sa ibaba mula Row 5 pababa. Huwag baguhin ang headers (Row 3) o ang halimbawa (Row 4)."],
+        ["product_name*", "category*", "price*", "is_available*", "description"],
+        ["Halimbawa: Classic Lemonade", "JUICE", "75", "TRUE", "Optional na paglalarawan"],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws["!cols"] = [{wch:28},{wch:16},{wch:10},{wch:14},{wch:32}];
+      XLSX.utils.book_append_sheet(wb, ws, "Products");
+    } else {
+      const materialsAoa = [
+        ["LIMJOE — Raw Materials & Recipes Upload Template"],
+        ["Punan ang 'Raw Materials' sheet (mga ingredients) at ang 'Recipes' sheet (kung anong materials/dami gamit bawat produkto). Huwag baguhin ang headers o halimbawa."],
+        ["material_name*", "category*", "unit*", "stock_qty*", "reorder_point*", "cost_per_unit"],
+        ["Halimbawa: Lemon", "ingredient", "pcs", "500", "50", "5"],
+      ];
+      const wsMat = XLSX.utils.aoa_to_sheet(materialsAoa);
+      wsMat["!cols"] = [{wch:24},{wch:16},{wch:10},{wch:12},{wch:14},{wch:14}];
+      XLSX.utils.book_append_sheet(wb, wsMat, "Raw Materials");
+
+      const recipesAoa = [
+        ["LIMJOE — Recipes (ilang units ng material bawat produkto, per size)"],
+        ["Ang product_name at material_name ay dapat eksaktong tugma sa mga pangalan sa Products at Raw Materials. Kailangan ng hiwalay na row bawat size (Large/Medium)."],
+        ["product_name*", "material_name*", "size*", "qty_per_unit*"],
+        ["Halimbawa: Classic Lemonade", "Lemon", "Large", "1"],
+      ];
+      const wsRec = XLSX.utils.aoa_to_sheet(recipesAoa);
+      wsRec["!cols"] = [{wch:28},{wch:24},{wch:12},{wch:14}];
+      XLSX.utils.book_append_sheet(wb, wsRec, "Recipes");
+    }
+    XLSX.writeFile(wb, activeType==="products" ? "products_upload_template.xlsx" : "raw_materials_recipes_template.xlsx");
   }
 
   function reset() { setPreview(null); setResult(null); setStep("pick"); if (fileRef.current) fileRef.current.value = ""; }
@@ -430,6 +473,7 @@ function BulkUploadModal({ onClose, toast, onReloadProducts, onReloadInventory }
 
           {step==="pick"&&(
             <>
+              <button onClick={downloadTemplate} style={{ width:"100%",padding:"12px",background:cfg.color+"12",border:`1.5px solid ${cfg.color}`,borderRadius:10,color:cfg.color,fontWeight:800,fontSize:13,cursor:"pointer",marginBottom:12 }}>⬇️ I-download ang Template ({activeType==="products"?"products_upload_template.xlsx":"raw_materials_recipes_template.xlsx"})</button>
               <div onClick={()=>fileRef.current?.click()} style={{ border:`2px dashed ${C.border}`,borderRadius:12,padding:"36px 24px",textAlign:"center",cursor:"pointer",background:C.bg }}>
                 <div style={{ fontSize:38 }}>📂</div>
                 <div style={{ fontWeight:700,color:C.text,marginTop:8 }}>Click para pumili ng Excel file</div>
@@ -438,7 +482,7 @@ function BulkUploadModal({ onClose, toast, onReloadProducts, onReloadInventory }
               </div>
               <input ref={fileRef} type="file" accept=".xlsx" style={{ display:"none" }} onChange={handleFile}/>
               <div style={{ marginTop:12,padding:"10px 14px",background:C.infoBg,borderRadius:8,fontSize:12,color:C.info }}>
-                💡 I-download ang templates: <b>products_upload_template.xlsx</b> at <b>raw_materials_recipes_template.xlsx</b>
+                💡 I-download muna ang template sa itaas, punan ang mga produkto/presyo, tapos i-upload dito. Gagawin/i-a-update nito ang existing products base sa pangalan.
               </div>
             </>
           )}
