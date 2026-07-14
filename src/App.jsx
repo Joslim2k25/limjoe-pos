@@ -2400,24 +2400,24 @@ export default function App() {
               </div>
             );
           })()}{monthRows.length>0&&<div style={SR}><SB label="Monthly Gross" val={`₱${monthRows.reduce((s,r)=>s+r.gross,0).toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${monthRows.reduce((s,r)=>s+r.net,0).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={monthRows.reduce((s,r)=>s+r.txns,0)} color={C.info}/></div>}{monthRows.length===0?<div style={{...EM,padding:"20px"}}>Walang data sa buwan na ito</div>:(
-  <div style={{ overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+  <div style={{ overflow:"auto",maxHeight:"70vh",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
     <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800 }}>
       <thead>
         <tr style={{ background:"#1a1a2e",color:"white" }}>
-          <th style={{ padding:"10px 10px",textAlign:"left",fontWeight:700,whiteSpace:"nowrap" }}>📅 Date</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac" }}>Gross</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd" }}>💚 GCash</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd" }}>💙 Maya</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd" }}>🏦 GoTyme</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#f9a8d4" }}>🐼 FoodPanda</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac" }}>🚗 GrabFood</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac" }}>🏪 SM Online</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5" }}>Discount</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5" }}>Expenses</th>
-          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fde68a" }}>NET SALES</th>
-          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#c4b5fd" }}>Cash on Hand</th>}
-          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700 }}>Status</th>}
-          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700,color:"#86efac" }}>🏦 Bank</th>}
+          <th style={{ padding:"10px 10px",textAlign:"left",fontWeight:700,whiteSpace:"nowrap",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>📅 Date</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Gross</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>💚 GCash</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>💙 Maya</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🏦 GoTyme</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#f9a8d4",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🐼 FoodPanda</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🚗 GrabFood</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🏪 SM Online</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Discount</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Expenses</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fde68a",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>NET SALES</th>
+          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#c4b5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Cash on Hand</th>}
+          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700,position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Status</th>}
+          {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"center",fontWeight:700,color:"#86efac",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🏦 Bank</th>}
         </tr>
       </thead>
       <tbody>
@@ -2436,7 +2436,7 @@ export default function App() {
               <td onClick={()=>(r.grabfood||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"grabfood",label:"🚗 GrabFood"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.grabfood||0)>0?C.success:C.text3,cursor:(r.grabfood||0)>0?"pointer":"default",textDecoration:(r.grabfood||0)>0?"underline":"none" }}>{(r.grabfood||0)>0?`₱${(r.grabfood||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.sm||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"sm",label:"🏪 SM Online"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.sm||0)>0?C.info:C.text3,cursor:(r.sm||0)>0?"pointer":"default",textDecoration:(r.sm||0)>0?"underline":"none" }}>{(r.sm||0)>0?`₱${(r.sm||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.discAmt||0)>0&&setShowTxnDrill({date:r.date,type:"discount",filterKey:null,label:"🏷️ Discount"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.discAmt||0)>0?C.danger:C.text3,cursor:(r.discAmt||0)>0?"pointer":"default",textDecoration:(r.discAmt||0)>0?"underline":"none" }}>{(r.discAmt||0)>0?`-₱${(r.discAmt||0).toFixed(2)}`:"—"}</td>
-              <td style={{ padding:"9px 8px",textAlign:"right",color:r.expenses>0?C.danger:C.text3 }}>{r.expenses>0?`-₱${r.expenses.toFixed(2)}`:"—"}</td>
+              <td onClick={()=>r.expenses>0&&setShowTxnDrill({date:r.date,type:"expense",filterKey:null,label:"💸 Expenses"})} style={{ padding:"9px 8px",textAlign:"right",color:r.expenses>0?C.danger:C.text3,cursor:r.expenses>0?"pointer":"default",textDecoration:r.expenses>0?"underline":"none" }}>{r.expenses>0?`-₱${r.expenses.toFixed(2)}`:"—"}</td>
               <td style={{ padding:"9px 8px",textAlign:"right",fontWeight:900,color:C.warning }}>₱{r.net.toFixed(2)}</td>
               {bFilter!==null&&<td style={{ padding:"9px 8px",textAlign:"right" }}>
                 <div style={{ display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end" }}>
@@ -3423,6 +3423,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
 // ─── TRANSACTION DRILL-DOWN (click a payment/discount cell in Monthly Report) ─
 function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose }) {
   const [orders, setOrders] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [zoomImg, setZoomImg] = useState(null);
 
@@ -3430,6 +3431,13 @@ function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose
 
   async function load() {
     setLoading(true);
+    if (type === "expense") {
+      const branchFilter = branchId ? `&branch_id=eq.${branchId}` : "";
+      const data = await sb(`expenses?select=*&expense_date=eq.${date}${branchFilter}&order=created_at.desc`);
+      if (data) setExpenses(data);
+      setLoading(false);
+      return;
+    }
     const branchFilter = branchId ? `&branch_id=eq.${branchId}` : "";
     const typeFilter = type==="payment" ? `&payment_method=eq.${filterKey}` : `&discount_type=not.is.null`;
     const data = await sb(`orders?select=*,order_items(*),branches(name)&order_date=eq.${date}${branchFilter}${typeFilter}&order=order_time.desc`);
@@ -3437,7 +3445,7 @@ function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose
     setLoading(false);
   }
 
-  const total = orders.reduce((s,o)=>s+parseFloat(o.total||0),0);
+  const total = type==="expense" ? expenses.reduce((s,e)=>s+parseFloat(e.amount||0),0) : orders.reduce((s,o)=>s+parseFloat(o.total||0),0);
 
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3500,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -3445,12 +3453,24 @@ function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose
         <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,background:"white",zIndex:10,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
             <div style={{ fontWeight:900,fontSize:17,color:"#1c1917" }}>{label} — {date}</div>
-            <div style={{ fontSize:11,color:"#78716c" }}>{orders.length} transaction(s) · ₱{total.toFixed(2)}</div>
+            <div style={{ fontSize:11,color:"#78716c" }}>{type==="expense"?expenses.length:orders.length} {type==="expense"?"expense(s)":"transaction(s)"} · ₱{total.toFixed(2)}</div>
           </div>
           <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
         </div>
         <div style={{ padding:"14px 22px" }}>
           {loading ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8" }}>Loading...</div> :
+           type==="expense" ? (
+            expenses.length===0 ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8",fontSize:12 }}>Walang nahanap na expenses.</div> :
+            expenses.map(e=>(
+              <div key={e.id} style={{ borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1px solid #e2e8f0",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div>
+                  <div style={{ fontWeight:800,fontSize:13,color:"#1c1917" }}>{e.description||e.category}</div>
+                  <div style={{ fontSize:11,color:"#78716c",marginTop:2 }}>{e.category} · {e.added_by||"—"}</div>
+                </div>
+                <div style={{ fontWeight:900,fontSize:15,color:"#dc2626" }}>-₱{parseFloat(e.amount).toFixed(2)}</div>
+              </div>
+            ))
+           ) :
             orders.length===0 ? <div style={{ textAlign:"center",padding:30,color:"#94a3b8",fontSize:12 }}>Walang nahanap na transactions.</div> :
             orders.map(o=>(
               <div key={o.id} style={{ borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1px solid #e2e8f0" }}>
