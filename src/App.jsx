@@ -2274,6 +2274,28 @@ export default function App() {
               <div style={PT}>📊 Dashboard — {todayStr()}</div>
               <div style={SR}><SB label="Gross" val={`₱${todaySum.gross.toFixed(0)}`} color={C.success}/><SB label="Expenses" val={`₱${todayExp.toFixed(0)}`} color={C.danger}/><SB label="NET" val={`₱${(todaySum.gross-todayExp).toFixed(0)}`} color={C.warning}/><SB label="Txns" val={todaySum.txns} color={C.info}/></div>
 
+              {ROLE_LEVEL[currentUser?.role||"cashier"]>=3 && (()=>{
+                const branchStats = BRANCHES.map(b=>{ const s=calcSum(getOrders(todayStr(),b.id)); return { branch:b, gross:s.gross, txns:s.txns }; });
+                const maxGross = Math.max(1, ...branchStats.map(b=>b.gross));
+                const barColors = ["#2563eb","#16a34a","#d97706","#db2777"];
+                return (
+                  <div style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                    <div style={{ fontWeight:800,fontSize:13,color:C.text,marginBottom:12 }}>📈 Branch Comparison — Gross Sales Ngayong Araw</div>
+                    {branchStats.map((b,i)=>(
+                      <div key={b.branch.id} style={{ marginBottom:10 }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3 }}>
+                          <span style={{ fontWeight:700,color:C.text }}>{b.branch.name}</span>
+                          <span style={{ fontWeight:800,color:barColors[i%4] }}>₱{b.gross.toFixed(0)} <span style={{ color:C.text3,fontWeight:400 }}>({b.txns} txns)</span></span>
+                        </div>
+                        <div style={{ background:C.bg3,borderRadius:6,height:16,overflow:"hidden" }}>
+                          <div style={{ width:`${(b.gross/maxGross*100).toFixed(1)}%`,height:"100%",background:barColors[i%4],borderRadius:6,transition:"width 0.3s" }}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {bFilter===null && (
                 <div style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
@@ -2337,10 +2359,22 @@ export default function App() {
               {BRANCHES.map(b=>{
                 const bOrds = getOrders(todayStr(), b.id);
                 const bSum = calcSum(bOrds);
+                const isDashAdminOwner = ROLE_LEVEL[currentUser?.role||"cashier"]>=3;
+                const maxQty = Math.max(1, ...bSum.top8.map(([,d])=>d.qty));
                 return (
                   <div key={b.id} style={{ background:"white",borderRadius:10,padding:"10px 12px",marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
                     <div style={{ fontWeight:700,fontSize:12,color:C.text,marginBottom:6 }}>🏪 {b.name}</div>
-                    {bSum.top8.length===0?<div style={{ fontSize:11,color:C.text3,padding:"4px 0" }}>Wala pang sales</div>:bSum.top8.map(([n,d],i)=>(
+                    {bSum.top8.length===0?<div style={{ fontSize:11,color:C.text3,padding:"4px 0" }}>Wala pang sales</div>: isDashAdminOwner ? bSum.top8.map(([n,d],i)=>(
+                      <div key={n} style={{ marginBottom:6 }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2 }}>
+                          <span><span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900 }}>#{i+1}</span> <span style={{ color:C.text }}>{n}</span></span>
+                          <span style={{ color:C.text3 }}>×{d.qty} <span style={{ color:C.success,fontWeight:700 }}>₱{d.sales.toFixed(0)}</span></span>
+                        </div>
+                        <div style={{ background:C.bg3,borderRadius:5,height:8,overflow:"hidden" }}>
+                          <div style={{ width:`${(d.qty/maxQty*100).toFixed(1)}%`,height:"100%",background:i<3?["#d97706","#64748b","#92400e"][i]:C.info,borderRadius:5 }}/>
+                        </div>
+                      </div>
+                    )) : bSum.top8.map(([n,d],i)=>(
                       <div key={n} style={{ display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0",borderBottom:i<bSum.top8.length-1?`1px solid ${C.border}`:"none" }}>
                         <span style={{ color:i<3?["#d97706","#64748b","#92400e"][i]:C.text3,fontWeight:900,width:20 }}>#{i+1}</span>
                         <span style={{ flex:1,color:C.text }}>{n}</span>
