@@ -1025,6 +1025,12 @@ export default function App() {
   const [salesLogSearch, setSalesLogSearch] = useState("");
   const [reportDate, setReportDate] = useState(todayStr());
   const [dtrWeekStart, setDtrWeekStart] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-d.getDay()); return d.toISOString().slice(0,10); });
+  const [wideLayout, setWideLayout] = useState(typeof window!=="undefined" && window.innerWidth >= 880);
+  useEffect(()=>{
+    const onResize = () => setWideLayout(window.innerWidth >= 880);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  },[]);
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0,7));
   const [selectedBranch, setSelectedBranch] = useState("all");
   const [lemonUsageRows, setLemonUsageRows] = useState([]);
@@ -1877,20 +1883,22 @@ export default function App() {
           })}
         </div>
 
-        <div style={{ background:"white",borderBottom:`1px solid ${C.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",flexShrink:0 }}>
-          {activeCategories.map(c=>(<button key={c.key} onClick={()=>setActiveCat(c.key)} style={{ padding:"10px 13px",border:"none",background:"transparent",color:activeCat===c.key?c.color:C.text3,fontWeight:activeCat===c.key?900:600,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",borderBottom:activeCat===c.key?`3px solid ${c.color}`:"3px solid transparent" }}>{c.label}</button>))}
+        <div style={{ display:"flex",flexDirection:wideLayout?"row":"column",flex:1,overflow:"hidden" }}>
+        <div style={{ background:"white",borderBottom:wideLayout?"none":`1px solid ${C.border}`,borderRight:wideLayout?`1px solid ${C.border}`:"none",display:"flex",flexDirection:wideLayout?"column":"row",overflowX:wideLayout?"visible":"auto",overflowY:wideLayout?"auto":"visible",scrollbarWidth:"none",flexShrink:0,width:wideLayout?150:"auto" }}>
+          {activeCategories.map(c=>(<button key={c.key} onClick={()=>setActiveCat(c.key)} style={{ padding:wideLayout?"12px 14px":"10px 13px",border:"none",background:activeCat===c.key&&wideLayout?c.color+"15":"transparent",color:activeCat===c.key?c.color:C.text3,fontWeight:activeCat===c.key?900:600,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",textAlign:wideLayout?"left":"center",borderBottom:!wideLayout&&activeCat===c.key?`3px solid ${c.color}`:!wideLayout?"3px solid transparent":"none",borderLeft:wideLayout&&activeCat===c.key?`3px solid ${c.color}`:wideLayout?"3px solid transparent":"none" }}>{c.label}</button>))}
         </div>
 
-        <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
-          <div style={{ flex:1,overflowY:"auto",padding:10,background:C.bg }}>
+        <div style={{ flex:1,display:"flex",flexDirection:wideLayout?"row":"column",overflow:"hidden",minWidth:0 }}>
+          <div style={{ flex:1,overflowY:"auto",padding:10,background:C.bg,minWidth:0 }}>
             {items.length===0?<div style={{ textAlign:"center",padding:"30px 0",color:C.text3,fontSize:13 }}>Walang products sa category na ito.<br/><span style={{ fontSize:11 }}>I-upload via Bulk Upload o mag-add sa Product Editor.</span></div>:
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8 }}>
+            <div style={{ display:"grid",gridTemplateColumns:wideLayout?"repeat(auto-fill, minmax(120px, 1fr))":"repeat(3,1fr)",gap:8 }}>
               {items.map((item,idx)=>{ const mC=cart.find(c=>c.key===`${item.name}_M`); const lC=cart.find(c=>c.key===`${item.name}_L`); const inCart=mC||lC; const totalQty=(mC?.qty||0)+(lC?.qty||0); const bc=BORDER_COLORS[idx%BORDER_COLORS.length]; return(<button key={item.name} onClick={()=>setSizeModal(item)} style={{ background:inCart?"#f0fdf4":"white",border:`2px solid ${inCart?C.success:C.border}`,borderRadius:10,padding:"12px 6px",cursor:"pointer",textAlign:"center",position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minHeight:78,boxShadow:C.shadow }}>{inCart&&<div style={{ position:"absolute",top:4,right:4,background:C.success,color:"white",borderRadius:"50%",width:16,height:16,fontSize:9,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center" }}>{totalQty}</div>}<div style={{ fontSize:11,fontWeight:700,color:C.text,lineHeight:1.3 }}>{item.name}</div><div style={{ width:16,height:2,background:bc,borderRadius:1 }}/><div style={{ fontSize:9,color:C.text3 }}>₱{getPrice(item,"M")||""}{ item.medium?"-":""}₱{getPrice(item,"L")}</div></button>); })}
             </div>}
           </div>
 
+          <div style={{ display:"flex",flexDirection:"column",width:wideLayout?340:"auto",flexShrink:0,borderLeft:wideLayout?`1px solid ${C.border}`:"none",overflowY:wideLayout?"auto":"visible" }}>
           {cart.length>0&&(
-            <div style={{ background:"white",borderTop:`1px solid ${C.border}`,maxHeight:110,overflowY:"auto" }}>
+            <div style={{ background:"white",borderTop:`1px solid ${C.border}`,maxHeight:wideLayout?220:110,overflowY:"auto" }}>
               {/* Cancel Order button */}
               <div style={{ display:"flex",justifyContent:"flex-end",padding:"4px 12px",borderBottom:`1px solid ${C.border}` }}>
                 <button onClick={()=>{ if(window.confirm("Cancel lahat ng items sa order?")) setCart([]); }} style={{ padding:"3px 10px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:6,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>🗑️ Cancel Order</button>
@@ -2018,6 +2026,8 @@ export default function App() {
               <button onClick={doCheckout} disabled={!canCharge} style={{ padding:"13px 20px",background:canCharge?C.primary:C.bg3,border:`1px solid ${canCharge?C.primary:C.border}`,borderRadius:11,color:canCharge?"white":C.text3,fontWeight:900,fontSize:15,cursor:canCharge?"pointer":"not-allowed",minWidth:110 }}>{cart.length===0?"₱0":!canCharge?"Add Cash":"Charge ›"}</button>
             </div>
           </div>
+          </div>
+        </div>
         </div>
       </div>
     );
