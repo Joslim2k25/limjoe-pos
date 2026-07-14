@@ -1068,6 +1068,8 @@ export default function App() {
   // Admin
   const [adminTab, setAdminTab] = useState("dashboard");
   const [salesLogSearch, setSalesLogSearch] = useState("");
+  const [salesLogFrom, setSalesLogFrom] = useState(todayStr());
+  const [salesLogTo, setSalesLogTo] = useState(todayStr());
   const [reportDate, setReportDate] = useState(todayStr());
   const [dtrWeekStart, setDtrWeekStart] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-d.getDay()); return d.toISOString().slice(0,10); });
   const [wideLayout, setWideLayout] = useState(typeof window!=="undefined" && window.innerWidth >= 880);
@@ -2427,20 +2429,54 @@ export default function App() {
           })()}
 
           {adminTab==="saleslog"&&(()=>{
-            const filteredOrders = rOrders.filter(o=>{
+            const rangeOrders = (()=>{ const out=[]; const d=new Date(salesLogFrom+"T00:00:00"); const end=new Date(salesLogTo+"T00:00:00"); if(end<d) return out; while(d<=end){ out.push(...getOrders(d.toISOString().slice(0,10), bFilter)); d.setDate(d.getDate()+1); } return out; })();
+            const filteredOrders = rangeOrders.filter(o=>{
               if (!salesLogSearch.trim()) return true;
               const q = salesLogSearch.toLowerCase();
               return String(o.id).includes(q) || o.cashier.toLowerCase().includes(q) || o.branch.toLowerCase().includes(q) || (o.items||[]).some(i=>i.name.toLowerCase().includes(q));
             }).sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
             const totalItems = filteredOrders.reduce((s,o)=>s+(o.items?.reduce((s2,i)=>s2+i.qty,0)||0),0);
+            function exportSalesLogExcel() {
+              if (filteredOrders.length===0) { toast("Walang data na i-e-export.", "err"); return; }
+              const rows = filteredOrders.map(o=>{
+                const p = PAYMENT_METHODS.find(pm=>pm.key===o.paymentMethod);
+                return {
+                  "Date": o.date,
+                  "Time": o.time,
+                  "Order #": o.id,
+                  "Cashier": o.cashier,
+                  "Branch": o.branch,
+                  "Items": (o.items||[]).map(i=>`${i.name} (${i.size}) ×${i.qty}`).join(", "),
+                  "Payment Method": p?.label || o.paymentMethod,
+                  "Discount": o.discountAmt ? `${o.discountType} (-₱${o.discountAmt.toFixed(2)})` : "",
+                  "Total": o.total,
+                  "Status": o.voided ? "VOIDED" : "OK",
+                };
+              });
+              const totalsRow = { "Date":"TOTAL","Time":"","Order #":"","Cashier":"","Branch":"","Items":"","Payment Method":"","Discount":"","Total": filteredOrders.reduce((s,o)=>s+(o.voided?0:o.total),0), "Status": `${filteredOrders.length} txns` };
+              const ws = XLSX.utils.json_to_sheet([...rows, totalsRow]);
+              ws["!cols"] = [{wch:12},{wch:9},{wch:9},{wch:16},{wch:11},{wch:50},{wch:14},{wch:18},{wch:11},{wch:9}];
+              ws["!print"] = { area: `A1:J${rows.length+2}` };
+              ws["!margins"] = { left:0.4, right:0.4, top:0.5, bottom:0.5, header:0.2, footer:0.2 };
+              ws["!pageSetup"] = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0 };
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "Sales Log");
+              const branchLabel = selectedBranch==="all" ? "AllBranches" : BRANCHES.find(b=>String(b.id)===selectedBranch)?.name.replace(/\s+/g,"") || "";
+              const filename = `Limjoe_SalesLog_${salesLogFrom}_to_${salesLogTo}${branchLabel?`_${branchLabel}`:""}.xlsx`;
+              XLSX.writeFile(wb, filename);
+              toast(`✅ Na-download: ${filename}`);
+            }
             return (<div>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}>
                 <div style={PT}>🧾 Daily Itemized Sales Log</div>
-                <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                  <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
+                  <input type="date" value={salesLogFrom} onChange={e=>setSalesLogFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                  <span style={{ fontSize:11,color:C.text3 }}>hanggang</span>
+                  <input type="date" value={salesLogTo} onChange={e=>setSalesLogTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
                   <select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}>
                     <option value="all">🏪 Lahat ng Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
+                  <button onClick={exportSalesLogExcel} style={{ padding:"7px 14px",background:"#16a34a",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>📥 Export Excel</button>
                 </div>
               </div>
               <div style={{ position:"relative",marginBottom:14 }}>
