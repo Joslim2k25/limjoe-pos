@@ -587,9 +587,13 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
               <div style={{ fontWeight:700,fontSize:12,color:C.success,marginBottom:10 }}>NEW PRODUCT</div>
               <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
                 <input value={newProd.name} onChange={e=>setNewProd(p=>({...p,name:e.target.value}))} placeholder="Product name*" style={{ ...InputStyle,flex:2,minWidth:160 }}/>
-                <select value={newProd.category} onChange={e=>setNewProd(p=>({...p,category:e.target.value}))} style={{ ...InputStyle,flex:1,minWidth:120 }}>
+                <select value={categories.some(c=>c.key===newProd.category)?newProd.category:"__new__"} onChange={e=>setNewProd(p=>({...p,category:e.target.value==="__new__"?"":e.target.value}))} style={{ ...InputStyle,flex:1,minWidth:120 }}>
                   {categories.map(c=><option key={c.key} value={c.key}>{c.key}</option>)}
+                  <option value="__new__">+ Bagong Category...</option>
                 </select>
+                {!categories.some(c=>c.key===newProd.category)&&(
+                  <input value={newProd.category} onChange={e=>setNewProd(p=>({...p,category:e.target.value.toUpperCase()}))} placeholder="Bagong category name (hal. FOODPANDA/GRABFOOD)*" style={{ ...InputStyle,flex:2,minWidth:200,borderColor:C.warning }}/>
+                )}
               </div>
               {/* Price fields */}
               <div style={{ background:"white",borderRadius:8,padding:"10px 12px",marginBottom:8,border:`1px solid #86efac` }}>
@@ -1858,6 +1862,19 @@ export default function App() {
           <div style={{ flex:1 }}><div style={{ fontSize:13,fontWeight:900,color:C.primary }}>LIMJOE · {currentBranch.name}</div><div style={{ fontSize:9,color:C.text3 }}>{currentUser?.emoji} {currentUser?.name}</div></div>
           {cartCount>0&&<div style={{ background:C.primary,color:"white",borderRadius:20,padding:"3px 10px",fontWeight:900,fontSize:12 }}>{cartCount} items</div>}
           <button onClick={()=>setShowInventorySummary(true)} style={{ padding:"5px 9px",background:lowStockCount>0?C.dangerBg:C.bg3,border:`1px solid ${lowStockCount>0?C.danger:C.border}`,borderRadius:6,color:lowStockCount>0?C.danger:C.text2,cursor:"pointer",fontSize:11,fontWeight:700 }}>📦{lowStockCount>0?` ${lowStockCount}!`:""}</button>
+        </div>
+
+        <div style={{ background:isOnline?"#fff7ed":"white",borderBottom:`1px solid ${C.border}`,padding:"7px 12px",display:"flex",gap:6,alignItems:"center",flexShrink:0,overflowX:"auto" }}>
+          <span style={{ fontSize:9,color:C.text3,fontWeight:700,whiteSpace:"nowrap" }}>ORDER TYPE:</span>
+          {[{key:"cash",label:"🏪 In-Store",color:C.text2},{key:"foodpanda",label:"🐼 FoodPanda",color:"#db2777"},{key:"grabfood",label:"🚗 GrabFood",color:"#16a34a"}].map(ch=>{
+            const active = ch.key==="cash" ? !isOnline : paymentMethod===ch.key;
+            return (
+              <button key={ch.key} onClick={()=>{
+                if (cart.length>0 && ((ch.key==="cash")!==!isOnline || paymentMethod!==ch.key)) { toast("I-clear muna ang cart bago lumipat ng order type (magkaiba ang presyo)", "err"); return; }
+                setPaymentMethod(ch.key==="cash"?"cash":ch.key);
+              }} style={{ padding:"6px 11px",borderRadius:20,border:`1.5px solid ${active?ch.color:C.border}`,background:active?ch.color+"18":"white",color:active?ch.color:C.text3,fontWeight:active?800:600,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>{ch.label}</button>
+            );
+          })}
         </div>
 
         <div style={{ background:"white",borderBottom:`1px solid ${C.border}`,display:"flex",overflowX:"auto",scrollbarWidth:"none",flexShrink:0 }}>
