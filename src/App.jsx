@@ -1020,6 +1020,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState("dashboard");
   const [salesLogSearch, setSalesLogSearch] = useState("");
   const [reportDate, setReportDate] = useState(todayStr());
+  const [dtrWeekStart, setDtrWeekStart] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-d.getDay()); return d.toISOString().slice(0,10); });
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0,7));
   const [selectedBranch, setSelectedBranch] = useState("all");
   const [lemonUsageRows, setLemonUsageRows] = useState([]);
@@ -1156,7 +1157,13 @@ export default function App() {
   const isLoggedIn = (empId, branchId) => { const logs=getEmpDTR(empId,branchId,todayStr()); return logs.length>0&&!logs[logs.length-1].out; };
   const findActiveBranchFor = (empId) => { for (const b of BRANCHES) { if (isLoggedIn(empId,b.id)) return b; } return null; };
   const getEmpDTRAnyBranch = (empId, date) => { const ab=findActiveBranchFor(empId); if(ab)return{logs:getEmpDTR(empId,ab.id,date),branch:ab}; for(const b of BRANCHES){const logs=getEmpDTR(empId,b.id,date);if(logs.length>0)return{logs,branch:b};}return{logs:[],branch:null}; };
-  const calcDTRHours = (logs) => { const mins=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); return{hrs:Math.floor(mins/60),mins:mins%60,totalMins:mins}; };
+  const calcDTRHours = (logs, nowTimeStr) => {
+    const completedMins = logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);
+    const ongoing = logs.find(l=>!l.out);
+    const ongoingMins = ongoing && nowTimeStr ? Math.max(0, calcMins(ongoing.in, nowTimeStr)) : 0;
+    const mins = completedMins + ongoingMins;
+    return{hrs:Math.floor(mins/60),mins:mins%60,totalMins:mins};
+  };
 
   // ── PIN HANDLER ───────────────────────────────────────────────────────────
   const handlePin = (d) => {
@@ -1616,11 +1623,12 @@ export default function App() {
         </div>
         <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
           <div style={{ fontSize:11,color:C.text3,fontWeight:700,letterSpacing:1,marginBottom:10 }}>⏱️ TIME RECORD — {currentBranch.name}</div>
-          <div style={{ display:"flex",gap:10,marginBottom:12 }}>
+          <div style={{ display:"flex",gap:10,marginBottom:6 }}>
             <button onClick={()=>setPinMode("dtr-in")} style={{ flex:1,padding:"14px",background:C.successBg,border:`2px solid ${C.success}`,borderRadius:12,color:C.success,fontWeight:900,fontSize:15,cursor:"pointer" }}>🟢 TIME IN</button>
             <button onClick={()=>setPinMode("dtr-out")} style={{ flex:1,padding:"14px",background:C.dangerBg,border:`2px solid ${C.danger}`,borderRadius:12,color:C.danger,fontWeight:900,fontSize:15,cursor:"pointer" }}>🔴 TIME OUT</button>
           </div>
-          {employees.map(emp=>{ const{logs,branch:eb}=getEmpDTRAnyBranch(emp.id,todayStr()); const inside=eb?isLoggedIn(emp.id,eb.id):false; const{hrs,mins,totalMins}=calcDTRHours(logs); const last=logs[logs.length-1]; const atOther=eb&&eb.id!==currentBranch.id; return(<div key={emp.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:`1px solid ${C.border}` }}><div style={{ width:8,height:8,borderRadius:"50%",background:inside?C.success:logs.length?C.text3:C.border2 }}/><span style={{ fontSize:14 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:12,color:C.text }}>{emp.name}</div><div style={{ fontSize:9,color:C.text3 }}>{inside?`IN since ${last?.in}`:logs.length?`Out: ${last?.out}`:"No log today"}{atOther&&<span style={{ color:C.warning,fontWeight:700 }}> · 📍{eb.name}</span>}</div></div>{logs.length>0&&(<div style={{ textAlign:"right" }}><div style={{ fontWeight:800,fontSize:11,color:inside?C.success:C.text3 }}>{inside?`${hrs}h ${mins}m`:`Total: ${formatHrs(totalMins)}`}</div></div>)}</div>); })}
+          <div style={{ fontSize:10,color:C.text3,textAlign:"center",marginBottom:12 }}>☕ Parehong button din ito para sa break — TIME OUT bago mag-break, TIME IN pagbalik.</div>
+          {employees.map(emp=>{ const{logs,branch:eb}=getEmpDTRAnyBranch(emp.id,todayStr()); const inside=eb?isLoggedIn(emp.id,eb.id):false; const{hrs,mins,totalMins}=calcDTRHours(logs, inside?nowStr():null); const last=logs[logs.length-1]; const atOther=eb&&eb.id!==currentBranch.id; return(<div key={emp.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:`1px solid ${C.border}` }}><div style={{ width:8,height:8,borderRadius:"50%",background:inside?C.success:logs.length?C.text3:C.border2 }}/><span style={{ fontSize:14 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:12,color:C.text }}>{emp.name}</div><div style={{ fontSize:9,color:C.text3 }}>{inside?`IN since ${last?.in}`:logs.length?`Out: ${last?.out}`:"No log today"}{atOther&&<span style={{ color:C.warning,fontWeight:700 }}> · 📍{eb.name}</span>}</div></div>{logs.length>0&&(<div style={{ textAlign:"right" }}><div style={{ fontWeight:800,fontSize:11,color:inside?C.success:C.text3 }}>{inside?`${hrs}h ${mins}m`:`Total: ${formatHrs(totalMins)}`}</div></div>)}</div>); })}
         </div>
         <div style={{ display:"flex",gap:10 }}>
           <button onClick={()=>setPinMode("cashier-login")} style={{ flex:1,padding:"20px 10px",background:C.primary,border:"none",borderRadius:14,color:"white",fontWeight:900,fontSize:15,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,boxShadow:`0 2px 8px ${C.primary}44` }}><span style={{ fontSize:28 }}>🧾</span><span>CASHIER POS</span><span style={{ fontSize:10,opacity:0.85 }}>Cashier / Manager</span></button>
@@ -2484,7 +2492,83 @@ export default function App() {
 
           {adminTab==="deposit"&&(<div><div style={PT}>🏦 Bank Deposit Checker</div><div style={{ background:"white",borderRadius:14,padding:16,border:`1px solid ${C.border}`,boxShadow:C.shadow,marginBottom:16 }}><div style={{ fontSize:11,color:C.text3,fontWeight:700,marginBottom:12 }}>CHECK DEPOSIT VS ACTUAL CASH SALES</div><div style={{ display:"flex",gap:8,marginBottom:10,flexWrap:"wrap" }}><div style={{ flex:1 }}><div style={{ fontSize:10,color:C.text3,marginBottom:4 }}>Date From</div><input type="date" value={depositFrom} onChange={e=>setDepositFrom(e.target.value)} style={{ width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:12,boxSizing:"border-box" }}/></div><div style={{ flex:1 }}><div style={{ fontSize:10,color:C.text3,marginBottom:4 }}>Date To</div><input type="date" value={depositTo} onChange={e=>setDepositTo(e.target.value)} style={{ width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:12,boxSizing:"border-box" }}/></div></div><div style={{ marginBottom:14 }}><div style={{ fontSize:10,color:C.text3,marginBottom:4 }}>Deposit Amount</div><input type="number" value={depositAmt} onChange={e=>setDepositAmt(e.target.value)} placeholder="₱0.00" style={{ width:"100%",padding:"12px",fontSize:22,fontWeight:900,borderRadius:8,border:`2px solid ${C.border}`,background:"white",color:C.warning,outline:"none",boxSizing:"border-box" }}/></div><div style={{ display:"flex",gap:8 }}><button onClick={checkDeposit} disabled={depositLoading} style={{ flex:2,padding:"14px",background:depositLoading?C.bg3:C.accent,border:"none",borderRadius:10,color:depositLoading?C.text3:"white",fontWeight:900,fontSize:15,cursor:depositLoading?"not-allowed":"pointer" }}>{depositLoading?"🔍 Checking...":"🔍 Check Deposit"}</button>{depositResult&&<button onClick={clearDeposit} style={{ flex:1,padding:"14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:10,color:C.danger,fontWeight:900,fontSize:14,cursor:"pointer" }}>✕ Clear</button>}</div></div>{depositResult&&(<div style={{ background:depositResult.matched?C.successBg:C.dangerBg,borderRadius:14,padding:16,border:`2px solid ${depositResult.matched?C.success:C.danger}` }}><div style={{ fontSize:22 }}>{depositResult.matched?"✅":"❌"}</div><div style={{ fontSize:16,fontWeight:900,color:depositResult.matched?C.success:C.danger,marginTop:4 }}>{depositResult.matched?"DEPOSIT MATCHED!":"DEPOSIT MISMATCH!"}</div>{[{label:"Total Sales",val:`₱${depositResult.totalSales.toFixed(2)}`},{label:"Cash Sales Only",val:`₱${depositResult.cashSales.toFixed(2)}`},{label:"Amount Deposited",val:`₱${depositResult.deposit.toFixed(2)}`,bold:true}].map(r=>(<div key={r.label} style={{ display:"flex",justifyContent:"space-between",fontSize:13,padding:"7px 0",borderBottom:`1px solid ${depositResult.matched?C.success+"33":C.danger+"33"}` }}><span style={{ color:C.text2 }}>{r.label}</span><span style={{ fontWeight:r.bold?900:700,color:r.bold?C.warning:C.text }}>{r.val}</span></div>))}<div style={{ display:"flex",justifyContent:"space-between",fontSize:20,fontWeight:900,padding:"12px 0" }}><span>{depositResult.diff>=0?"SURPLUS":"SHORT"}</span><span style={{ color:depositResult.diff>=0?C.success:C.danger }}>{depositResult.diff>=0?"+":""}₱{depositResult.diff.toFixed(2)}</span></div></div>)}</div>)}
 
-          {adminTab==="dtr"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>🕐 DTR — {reportDate}</div><div style={{ display:"flex",gap:8 }}><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>{employees.map(emp=>BRANCHES.map(branch=>{ const logs=getEmpDTR(emp.id,branch.id,reportDate); if(!logs.length)return null; const{hrs,mins,totalMins}=calcDTRHours(logs); const isStillIn=!logs[logs.length-1].out; return(<div key={`${emp.id}_${branch.id}`} style={{ background:"white",borderRadius:10,padding:"12px 14px",marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}><div><span style={{ fontWeight:700,fontSize:13,color:C.text }}>{emp.emoji} {emp.name}</span><span style={{ fontSize:10,color:C.text3,marginLeft:8 }}>📍 {branch.name}</span></div><div style={{ textAlign:"right" }}><div style={{ fontWeight:900,fontSize:14,color:isStillIn?C.warning:C.success }}>{isStillIn?`${hrs}h ${mins}m (ongoing)`:formatHrs(totalMins)}</div></div></div>{logs.map((l,i)=>{ const dur=l.out?formatHrs(calcMins(l.in,l.out)):"ongoing"; return(<div key={i} style={{ display:"flex",gap:12,fontSize:11,padding:"3px 0",borderTop:`1px solid ${C.border}` }}><span style={{ color:C.text3,minWidth:40 }}>{i===0?"AM":`Break ${i}`}</span><span style={{ color:C.success }}>🟢 <b>{l.in}</b></span><span style={{ color:l.out?C.danger:C.warning }}>{l.out?<>🔴 <b>{l.out}</b></>:"⏳ Still in"}</span><span style={{ color:C.text3 }}>{dur}</span></div>); })}</div>); }))}{employees.every(emp=>BRANCHES.every(b=>!getEmpDTR(emp.id,b.id,reportDate).length))&&<div style={EM}>Walang DTR records</div>}</div>)}
+          {adminTab==="dtr"&&(()=>{
+            const weekStart = dtrWeekStart;
+            const days = Array.from({length:7},(_,i)=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()+i); return d.toISOString().slice(0,10); });
+            const dtrEmployees = bFilter ? employees.filter(e=>!e.branchId||e.branchId===bFilter) : employees;
+            function dayTotalMins(emp, date) {
+              const isToday = date===todayStr();
+              return BRANCHES.reduce((sum,b)=>{
+                const logs = getEmpDTR(emp.id, b.id, date);
+                if (!logs.length) return sum;
+                const {totalMins} = calcDTRHours(logs, isToday?nowStr():null);
+                return sum + totalMins;
+              }, 0);
+            }
+            function isCurrentlyIn(emp) {
+              return BRANCHES.some(b=>isLoggedIn(emp.id,b.id));
+            }
+            return (<div>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8 }}>
+                <div style={PT}>🕐 DTR</div>
+                <div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}>
+                  <button onClick={()=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()-7); setDtrWeekStart(d.toISOString().slice(0,10)); }} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",cursor:"pointer",fontSize:12 }}>◀</button>
+                  <input type="date" value={weekStart} onChange={e=>setDtrWeekStart(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                  <button onClick={()=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()+7); setDtrWeekStart(d.toISOString().slice(0,10)); }} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",cursor:"pointer",fontSize:12 }}>▶</button>
+                  <button onClick={()=>window.print()} style={{ padding:"6px 14px",background:"#2563eb",border:"none",borderRadius:7,color:"white",fontWeight:700,fontSize:11,cursor:"pointer" }}>🖨️ Print DTR</button>
+                </div>
+              </div>
+              <div style={{ display:"flex",gap:14,marginBottom:10,fontSize:10,color:C.text3,flexWrap:"wrap" }}>
+                <span><span style={{ display:"inline-block",width:10,height:10,background:"#16a34a",borderRadius:3,marginRight:4 }}/>Green = 8+ hrs</span>
+                <span><span style={{ display:"inline-block",width:10,height:10,background:"#d97706",borderRadius:3,marginRight:4 }}/>Gold = 4-8 hrs</span>
+                <span><span style={{ display:"inline-block",width:10,height:10,background:"#dc2626",borderRadius:3,marginRight:4 }}/>Red = under 4 hrs</span>
+              </div>
+              <div style={{ overflowX:"auto",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+                <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11 }}>
+                  <thead>
+                    <tr style={{ background:"#1c1917",color:"white" }}>
+                      <th style={{ padding:"8px 10px",textAlign:"left",position:"sticky",left:0,background:"#1c1917",zIndex:2 }}>Employee</th>
+                      {days.map(d=>{ const dow=new Date(d+"T00:00:00").toLocaleDateString("en-US",{weekday:"short"}); const dnum=new Date(d+"T00:00:00").getDate(); const isToday=d===todayStr(); return (
+                        <th key={d} style={{ padding:"8px 6px",textAlign:"center",minWidth:44,background:isToday?"#374151":"#1c1917" }}>{dow[0]}<br/>{dnum}</th>
+                      );})}
+                      <th style={{ padding:"8px 8px",textAlign:"center" }}>Days</th>
+                      <th style={{ padding:"8px 8px",textAlign:"center" }}>Total Hrs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dtrEmployees.map(emp=>{
+                      const dayMinsArr = days.map(d=>dayTotalMins(emp,d));
+                      const daysWorked = dayMinsArr.filter(m=>m>0).length;
+                      const totalMins = dayMinsArr.reduce((s,m)=>s+m,0);
+                      const activeNow = isCurrentlyIn(emp);
+                      return (
+                        <tr key={emp.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                          <td style={{ padding:"7px 10px",fontWeight:700,whiteSpace:"nowrap",position:"sticky",left:0,background:"white" }}>{emp.emoji} {emp.name}<div style={{ fontSize:9,color:C.text3,fontWeight:400 }}>{emp.role}</div></td>
+                          {days.map((d,i)=>{
+                            const mins = dayMinsArr[i];
+                            const hrs = mins/60;
+                            const isToday = d===todayStr();
+                            const showIn = isToday && activeNow;
+                            const color = mins===0 ? C.text3 : hrs>=8 ? "#16a34a" : hrs>=4 ? "#d97706" : "#dc2626";
+                            return (
+                              <td key={d} style={{ padding:"7px 4px",textAlign:"center",color, fontWeight:mins>0?700:400 }}>
+                                {showIn ? <span style={{ color:"#2563eb",fontWeight:800 }}>IN</span> : mins>0 ? (mins/60).toFixed(1) : "—"}
+                              </td>
+                            );
+                          })}
+                          <td style={{ padding:"7px 8px",textAlign:"center",fontWeight:700,color:C.success }}>{daysWorked}</td>
+                          <td style={{ padding:"7px 8px",textAlign:"center",fontWeight:700,color:C.info }}>{(totalMins/60).toFixed(1)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop:22,marginBottom:10 }}><div style={PT}>📋 Detalyadong Log — {reportDate}</div><input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,marginTop:6 }}/></div>
+              {employees.map(emp=>BRANCHES.map(branch=>{ const logs=getEmpDTR(emp.id,branch.id,reportDate); if(!logs.length)return null; const{hrs,mins,totalMins}=calcDTRHours(logs, reportDate===todayStr()?nowStr():null); const isStillIn=!logs[logs.length-1].out; return(<div key={`${emp.id}_${branch.id}`} style={{ background:"white",borderRadius:10,padding:"12px 14px",marginBottom:8,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}><div><span style={{ fontWeight:700,fontSize:13,color:C.text }}>{emp.emoji} {emp.name}</span><span style={{ fontSize:10,color:C.text3,marginLeft:8 }}>📍 {branch.name}</span></div><div style={{ textAlign:"right" }}><div style={{ fontWeight:900,fontSize:14,color:isStillIn?C.warning:C.success }}>{isStillIn?`${hrs}h ${mins}m (ongoing)`:formatHrs(totalMins)}</div></div></div>{logs.map((l,i)=>{ const dur=l.out?formatHrs(calcMins(l.in,l.out)):formatHrs(calcMins(l.in,nowStr())); return(<div key={i} style={{ display:"flex",gap:12,fontSize:11,padding:"3px 0",borderTop:`1px solid ${C.border}` }}><span style={{ color:C.text3,minWidth:60 }}>{i===0?"⏰ Time In":`☕ Break ${i}`}</span><span style={{ color:C.success }}>🟢 <b>{l.in}</b></span><span style={{ color:l.out?C.danger:C.warning }}>{l.out?<>🔴 <b>{l.out}</b></>:"⏳ Still in"}</span><span style={{ color:C.text3 }}>{dur}{!l.out?" (ongoing)":""}</span></div>); })}</div>); }))}{employees.every(emp=>BRANCHES.every(b=>!getEmpDTR(emp.id,b.id,reportDate).length))&&<div style={EM}>Walang DTR records</div>}
+            </div>);
+          })()}
 
           {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
