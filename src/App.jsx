@@ -1034,6 +1034,7 @@ export default function App() {
   const [cart, setCart] = useState([]);
   const [sizeModal, setSizeModal] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [orderType, setOrderType] = useState("instore"); // instore | foodpanda | grabfood — controls pricing only, separate from actual paymentMethod
   const [payTab, setPayTab] = useState("payment");
   const [loyaltyPhone, setLoyaltyPhone] = useState("");
   const [loyaltyCustomer, setLoyaltyCustomer] = useState(null);
@@ -1232,12 +1233,12 @@ export default function App() {
     setLoginAttempts(0); setPinError(""); setPinInput("");
     if (pinMode==="dtr-in") { const eb=findActiveBranchFor(emp.id); if(eb){setPinError(`${emp.name} naka-login pa sa ${eb.name}!`);return;} const nd={...dtrData}; const k=`${emp.id}_${currentBranch.id}_${todayStr()}`; if(!nd[k])nd[k]=[]; nd[k].push({in:nowStr(),out:null,name:emp.name}); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:currentBranch.id,dtr_date:todayStr(),time_in:nowStr()}); toast(`🟢 TIME IN: ${emp.emoji} ${emp.name}`); setPinMode(""); return; }
     if (pinMode==="dtr-out") { const ab=findActiveBranchFor(emp.id); if(!ab){setPinError(`${emp.name} hindi naka-time in!`);return;} const nd={...dtrData}; const k=`${emp.id}_${ab.id}_${todayStr()}`; const entry=nd[k][nd[k].length-1]; entry.out=nowStr(); const tm=nd[k].filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:ab.id,dtr_date:todayStr(),time_in:entry.in,time_out:entry.out}); toast(`🔴 TIME OUT: ${emp.emoji} ${emp.name} | Total: ${formatHrs(tm)}`); setPinMode(""); return; }
-    if (pinMode==="cashier-login") { if(ROLE_LEVEL[emp.role]>=3){setPinError("Admin/Owner — gamitin ang Admin Portal.");return;} if(emp.branchId&&emp.branchId!==currentBranch.id){setPinError(`${emp.name} ay nasa ${BRANCHES.find(b=>b.id===emp.branchId)?.name} lang.`);return;} setCurrentUser(emp); setCart([]); setActiveCat(activeCategories[0]?.key||"JUICE"); setDiscountType(null); setCashGiven(0); setPaymentMethod("cash"); setPosScreen("pos"); setEnv("cashier"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); auditLog("LOGIN", `${emp.name} logged in as ${emp.role}`, emp, currentBranch.id, currentBranch.name); return; }
+    if (pinMode==="cashier-login") { if(ROLE_LEVEL[emp.role]>=3){setPinError("Admin/Owner — gamitin ang Admin Portal.");return;} if(emp.branchId&&emp.branchId!==currentBranch.id){setPinError(`${emp.name} ay nasa ${BRANCHES.find(b=>b.id===emp.branchId)?.name} lang.`);return;} setCurrentUser(emp); setCart([]); setActiveCat(activeCategories[0]?.key||"JUICE"); setDiscountType(null); setCashGiven(0); setPaymentMethod("cash"); setOrderType("instore"); setPosScreen("pos"); setEnv("cashier"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); auditLog("LOGIN", `${emp.name} logged in as ${emp.role}`, emp, currentBranch.id, currentBranch.name); return; }
     if (pinMode==="admin-login") { if(ROLE_LEVEL[emp.role]<3){setPinError("Owner/Admin lang.");return;} setCurrentUser(emp); setEnv("admin"); setAdminTab("dashboard"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); return; }
   };
 
   // ── CART & POS ────────────────────────────────────────────────────────────
-  const isOnline = ["foodpanda","grabfood","sm"].includes(paymentMethod);
+  const isOnline = orderType !== "instore";
   const pm = PAYMENT_METHODS.find(p=>p.key===paymentMethod);
   const getPrice = (item, size) => { if(isOnline)return size==="M"?(item.onlineMed||item.medium):item.onlineLge; return size==="M"?item.medium:item.large; };
   const getFinalPrice = (price) => { if(discountType==="SNR"||discountType==="PWD")return applyDiscount(price); if(discountType==="5%")return price*0.95; if(discountType==="10%")return price*0.90; if(discountType==="20%")return price*0.80; return price; };
@@ -1306,7 +1307,7 @@ export default function App() {
     }
 
     setLastReceipt(order); setOrderNum(n=>n+1);
-    setCart([]); setCashGiven(0); setDiscountType(null); setPaymentMethod("cash"); setDiscountCustomerName(""); setDiscountCustomerID(""); setReferenceNumber(""); setPaymentProofUrl(null); setDiscountIdPhotoUrl(null);
+    setCart([]); setCashGiven(0); setDiscountType(null); setPaymentMethod("cash"); setOrderType("instore"); setDiscountCustomerName(""); setDiscountCustomerID(""); setReferenceNumber(""); setPaymentProofUrl(null); setDiscountIdPhotoUrl(null);
     setLoyaltyPhone(""); setLoyaltyCustomer(null);
     setPosScreen("receipt");
     if (savedToCloud) toast(`Order #${order.id} saved! ☁️`);
@@ -1916,16 +1917,20 @@ export default function App() {
 
         <div style={{ background:isOnline?"#fff7ed":"white",borderBottom:`1px solid ${C.border}`,padding:"7px 12px",display:"flex",gap:6,alignItems:"center",flexShrink:0,overflowX:"auto" }}>
           <span style={{ fontSize:9,color:C.text3,fontWeight:700,whiteSpace:"nowrap" }}>ORDER TYPE:</span>
-          {[{key:"cash",label:"🏪 In-Store",color:C.text2},{key:"foodpanda",label:"🐼 FoodPanda",color:"#db2777"},{key:"grabfood",label:"🚗 GrabFood",color:"#16a34a"}].map(ch=>{
-            const active = ch.key==="cash" ? !isOnline : paymentMethod===ch.key;
+          {[{key:"instore",label:"🏪 In-Store",color:C.text2},{key:"foodpanda",label:"🐼 FoodPanda",color:"#db2777"},{key:"grabfood",label:"🚗 GrabFood",color:"#16a34a"},{key:"sm",label:"🏪 SM Online",color:"#1d4ed8"}].map(ch=>{
+            const active = orderType===ch.key;
             return (
               <button key={ch.key} onClick={()=>{
-                if (cart.length>0 && ((ch.key==="cash")!==!isOnline || paymentMethod!==ch.key)) { toast("I-clear muna ang cart bago lumipat ng order type (magkaiba ang presyo)", "err"); return; }
-                setPaymentMethod(ch.key==="cash"?"cash":ch.key);
+                if (cart.length>0 && orderType!==ch.key) { toast("I-clear muna ang cart bago lumipat ng order type (magkaiba ang presyo)", "err"); return; }
+                setOrderType(ch.key);
+                // Default the payment method to match — cashier can still change it freely in the Payment tab.
+                setPaymentMethod(ch.key==="instore" ? "cash" : ch.key);
               }} style={{ padding:"6px 11px",borderRadius:20,border:`1.5px solid ${active?ch.color:C.border}`,background:active?ch.color+"18":"white",color:active?ch.color:C.text3,fontWeight:active?800:600,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>{ch.label}</button>
             );
           })}
+          <span style={{ fontSize:9,color:C.text3,marginLeft:4 }}>(presyo lang ito — piliin ang tunay na payment method sa Payment tab)</span>
         </div>
+
 
         <div style={{ display:"flex",flexDirection:wideLayout?"row":"column",flex:1,overflow:"hidden" }}>
         <div style={{ background:"white",borderBottom:wideLayout?"none":`1px solid ${C.border}`,borderRight:wideLayout?`1px solid ${C.border}`:"none",display:"flex",flexDirection:wideLayout?"column":"row",overflowX:wideLayout?"visible":"auto",overflowY:wideLayout?"auto":"visible",scrollbarWidth:"none",flexShrink:0,width:wideLayout?150:"auto" }}>
