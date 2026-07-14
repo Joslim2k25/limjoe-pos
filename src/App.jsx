@@ -1241,7 +1241,7 @@ export default function App() {
   const isOnline = orderType !== "instore";
   const pm = PAYMENT_METHODS.find(p=>p.key===paymentMethod);
   const getPrice = (item, size) => { if(isOnline)return size==="M"?(item.onlineMed||item.medium):item.onlineLge; return size==="M"?item.medium:item.large; };
-  const getFinalPrice = (price) => { if(discountType==="SNR"||discountType==="PWD")return applyDiscount(price); if(discountType==="5%")return price*0.95; if(discountType==="10%")return price*0.90; if(discountType==="20%")return price*0.80; return price; };
+  const getFinalPrice = (price) => { if(discountType==="SNR"||discountType==="PWD")return applyDiscount(price); if(discountType&&discountType.endsWith("%")){ const pct=parseFloat(discountType); if(!isNaN(pct))return price*(1-pct/100); } return price; };
   const addToCart = (item, size) => { const price=getPrice(item,size); const key=`${item.name}_${size}`; setCart(prev=>{ const ex=prev.find(c=>c.key===key); if(ex)return prev.map(c=>c.key===key?{...c,qty:c.qty+1}:c); return[...prev,{key,name:item.name,size,qty:1,price,category:activeCat}]; }); setSizeModal(null); };
   const setQty = (key, qty) => { if(qty<=0)setCart(prev=>prev.filter(c=>c.key!==key)); else setCart(prev=>prev.map(c=>c.key===key?{...c,qty}:c)); };
   const subtotal = cart.reduce((s,c)=>s+c.price*c.qty,0);
@@ -2003,7 +2003,9 @@ export default function App() {
                 </div>
               )}
             </div>)}
-            {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>{setDiscountType(null);setDiscountIdPhotoUrl(null);}} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>
+            {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}>
+              <div style={{ fontSize:9,color:C.text3,fontWeight:700,marginBottom:5 }}>{isOnline?"🛵 FP/GrabFood Discounts:":"🏪 In-Store Discounts:"}</div>
+              <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{(isOnline?["15%","20%","25%","30%"]:["5%","10%","20%"]).map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{!isOnline&&["SNR","PWD"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>{setDiscountType(null);setDiscountIdPhotoUrl(null);}} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>
                   {discountType==="SNR"||discountType==="PWD"?`20% Discount | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}
                   {(discountCustomerName)&&(
                     <div style={{ marginTop:4,background:C.successBg,borderRadius:6,padding:"4px 8px",color:C.success,fontWeight:700 }}>
@@ -3686,7 +3688,7 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
   async function load() {
     setLoading(true);
     const branchFilter = branchId!=="all" ? `&branch_id=eq.${branchId}` : "";
-    const typeF = typeFilter==="all" ? `&discount_type=in.(SNR,PWD,5%25,10%25,20%25)` : `&discount_type=eq.${encodeURIComponent(typeFilter)}`;
+    const typeF = typeFilter==="all" ? `&discount_type=in.(SNR,PWD,5%25,10%25,15%25,20%25,25%25,30%25)` : `&discount_type=eq.${encodeURIComponent(typeFilter)}`;
     const data = await sb(`orders?select=*,branches(name)&order_date=gte.${fromDate}&order_date=lte.${toDate}${branchFilter}${typeF}&order=order_date.desc,order_time.desc`);
     if (data) setOrders(data);
     setLoading(false);
@@ -3714,7 +3716,10 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
               <option value="PWD">PWD lang</option>
               <option value="5%">5% lang</option>
               <option value="10%">10% lang</option>
+              <option value="15%">15% lang</option>
               <option value="20%">20% lang</option>
+              <option value="25%">25% lang</option>
+              <option value="30%">30% lang</option>
             </select>
             <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
             <span style={{ alignSelf:"center",fontSize:12,color:"#78716c" }}>hanggang</span>
