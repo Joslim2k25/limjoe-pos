@@ -1273,13 +1273,13 @@ export default function App() {
     if (!canCharge) { toast("Hindi pa ready!","err"); return; }
     const dk=todayStr(); const bk=`${currentBranch.id}_${dk}`;
     const itemsWithFinal=cart.map(c=>({...c,finalPrice:Math.round(getFinalPrice(c.price)*100)/100}));
-    const order={ id:orderNum, time:nowStr(), date:dk, branch:currentBranch.name, branchId:currentBranch.id, cashier:currentUser.name, paymentMethod, items:itemsWithFinal, subtotal, discountType, discountAmt, discountCustomerName:(discountType==="SNR"||discountType==="PWD")?discountCustomerName:"", discountCustomerID:(discountType==="SNR"||discountType==="PWD")?discountCustomerID:"", total, cash:cashGiven||total, change:paymentMethod==="cash"?Math.max(0,change):0 };
+    const order={ id:orderNum, time:nowStr(), date:dk, branch:currentBranch.name, branchId:currentBranch.id, cashier:currentUser.name, paymentMethod, items:itemsWithFinal, subtotal, discountType, discountAmt, discountCustomerName:discountType?discountCustomerName:"", discountCustomerID:discountType?discountCustomerID:"", total, cash:cashGiven||total, change:paymentMethod==="cash"?Math.max(0,change):0 };
     const ns={...salesData}; if(!ns[bk])ns[bk]={orders:[]}; ns[bk].orders.push(order);
     setSalesData(ns); await persist(SALES_KEY,ns);
 
     let savedToCloud=false; let errMsg=null;
     try {
-      const result=await sb("orders","POST",{ order_num:orderNum, branch_id:currentBranch.id, cashier_name:currentUser.name, payment_method:paymentMethod, subtotal, discount_type:discountType, discount_amt:discountAmt, total, cash_given:cashGiven||total, change_given:paymentMethod==="cash"?Math.max(0,change):0, order_date:dk, order_time:nowStr(), reference_number:isCashless?referenceNumber.trim():null, payment_proof_url:isCashless?paymentProofUrl:null, discount_id_photo_url:(discountType==="SNR"||discountType==="PWD")?discountIdPhotoUrl:null, discount_customer_name:(discountType==="SNR"||discountType==="PWD")?discountCustomerName.trim():null, discount_customer_id:(discountType==="SNR"||discountType==="PWD")?discountCustomerID.trim():null });
+      const result=await sb("orders","POST",{ order_num:orderNum, branch_id:currentBranch.id, cashier_name:currentUser.name, payment_method:paymentMethod, subtotal, discount_type:discountType, discount_amt:discountAmt, total, cash_given:cashGiven||total, change_given:paymentMethod==="cash"?Math.max(0,change):0, order_date:dk, order_time:nowStr(), reference_number:isCashless?referenceNumber.trim():null, payment_proof_url:isCashless?paymentProofUrl:null, discount_id_photo_url:discountType?discountIdPhotoUrl:null, discount_customer_name:discountType?discountCustomerName.trim():null, discount_customer_id:discountType?discountCustomerID.trim():null });
       const sbOrder=result&&result[0];
       if (sbOrder?.id) {
         const itemsResult=await sb("order_items","POST", itemsWithFinal.map(i=>({ order_id:sbOrder.id, item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
@@ -1572,8 +1572,8 @@ export default function App() {
       {showDiscountModal&&(
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3000,padding:16,fontFamily:"sans-serif" }}>
           <div style={{ background:"white",borderRadius:20,padding:"24px 20px",width:"min(360px,95vw)",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
-            <div style={{ fontSize:28,textAlign:"center",marginBottom:6 }}>{pendingDiscount==="SNR"?"👴":"♿"}</div>
-            <div style={{ fontWeight:900,fontSize:18,textAlign:"center",color:C.success,marginBottom:4 }}>{pendingDiscount==="SNR"?"Senior Citizen":"PWD"} Discount</div>
+            <div style={{ fontSize:28,textAlign:"center",marginBottom:6 }}>{pendingDiscount==="SNR"?"👴":pendingDiscount==="PWD"?"♿":"🏷️"}</div>
+            <div style={{ fontWeight:900,fontSize:18,textAlign:"center",color:C.success,marginBottom:4 }}>{pendingDiscount==="SNR"?"Senior Citizen":pendingDiscount==="PWD"?"PWD":pendingDiscount} Discount</div>
             <div style={{ fontSize:12,color:"#64748b",textAlign:"center",marginBottom:20 }}>I-enter ang impormasyon ng customer</div>
             <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:11,color:"#64748b",marginBottom:4,fontWeight:600 }}>Litrato ng ID *</div>
@@ -1589,7 +1589,7 @@ export default function App() {
               />
             </div>
             <div style={{ marginBottom:20 }}>
-              <div style={{ fontSize:11,color:"#64748b",marginBottom:4,fontWeight:600 }}>{pendingDiscount==="SNR"?"Senior Citizen ID Number":"PWD ID Number"} *</div>
+              <div style={{ fontSize:11,color:"#64748b",marginBottom:4,fontWeight:600 }}>{pendingDiscount==="SNR"?"Senior Citizen ID Number":pendingDiscount==="PWD"?"PWD ID Number":"Customer ID Number"} *</div>
               <input
                 value={discountCustomerID}
                 onChange={e=>setDiscountCustomerID(e.target.value)}
@@ -1998,9 +1998,9 @@ export default function App() {
                 </div>
               )}
             </div>)}
-            {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>setDiscountType(discountType===d?null:d)} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>{setDiscountType(null);setDiscountIdPhotoUrl(null);}} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>
+            {payTab==="discount"&&(<div style={{ padding:"8px 12px" }}><div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>{["5%","10%","20%"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 12px",background:discountType===d?C.infoBg:"white",border:`1.5px solid ${discountType===d?C.info:C.border}`,borderRadius:7,color:discountType===d?C.info:C.text2,fontWeight:800,fontSize:12,cursor:"pointer" }}>{d}</button>)}{["SNR","PWD"].map(d=><button key={d} onClick={()=>{ if(discountType===d){setDiscountType(null);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);} else {setPendingDiscount(d);setDiscountCustomerName("");setDiscountCustomerID("");setDiscountIdPhotoUrl(null);setShowDiscountModal(true);} }} style={{ padding:"7px 14px",background:discountType===d?C.successBg:"white",border:`1.5px solid ${discountType===d?C.success:C.border}`,borderRadius:7,color:discountType===d?C.success:C.text2,fontWeight:900,fontSize:13,cursor:"pointer" }}>{d}</button>)}{discountType&&<button onClick={()=>{setDiscountType(null);setDiscountIdPhotoUrl(null);}} style={{ padding:"7px 10px",background:C.dangerBg,border:`1.5px solid ${C.danger}`,borderRadius:7,color:C.danger,fontWeight:800,fontSize:11,cursor:"pointer" }}>✕</button>}</div>{discountType&&<div style={{ fontSize:10,color:C.text3,marginTop:5 }}>
                   {discountType==="SNR"||discountType==="PWD"?`20% Discount | Save: ₱${discountAmt.toFixed(2)}`:`Discount: ₱${discountAmt.toFixed(2)}`}
-                  {(discountType==="SNR"||discountType==="PWD")&&discountCustomerName&&(
+                  {(discountCustomerName)&&(
                     <div style={{ marginTop:4,background:C.successBg,borderRadius:6,padding:"4px 8px",color:C.success,fontWeight:700 }}>
                       👤 {discountCustomerName} | ID: {discountCustomerID}
                     </div>
@@ -3671,7 +3671,7 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
   const [branchId, setBranchId] = useState(currentBranch?.id || "all");
   const [fromDate, setFromDate] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; });
   const [toDate, setToDate] = useState(()=>new Date().toISOString().slice(0,10));
-  const [typeFilter, setTypeFilter] = useState("all"); // all | SNR | PWD
+  const [typeFilter, setTypeFilter] = useState("all"); // all | SNR | PWD | 5% | 10% | 20%
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [zoomImg, setZoomImg] = useState(null);
@@ -3681,7 +3681,7 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
   async function load() {
     setLoading(true);
     const branchFilter = branchId!=="all" ? `&branch_id=eq.${branchId}` : "";
-    const typeF = typeFilter==="all" ? `&discount_type=in.(SNR,PWD)` : `&discount_type=eq.${typeFilter}`;
+    const typeF = typeFilter==="all" ? `&discount_type=in.(SNR,PWD,5%25,10%25,20%25)` : `&discount_type=eq.${encodeURIComponent(typeFilter)}`;
     const data = await sb(`orders?select=*,branches(name)&order_date=gte.${fromDate}&order_date=lte.${toDate}${branchFilter}${typeF}&order=order_date.desc,order_time.desc`);
     if (data) setOrders(data);
     setLoading(false);
@@ -3695,7 +3695,7 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
       <div style={{ background:"white",borderRadius:16,width:"min(720px,95vw)",maxHeight:"92vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",fontFamily:"sans-serif" }}>
         <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,background:"white",zIndex:10 }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
-            <div style={{ fontWeight:900,fontSize:17,color:"#1c1917" }}>🪪 Discount ID Log — SNR/PWD</div>
+            <div style={{ fontWeight:900,fontSize:17,color:"#1c1917" }}>🪪 Discount ID Log</div>
             <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
           </div>
           <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
@@ -3704,9 +3704,12 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
               {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"white" }}>
-              <option value="all">SNR + PWD</option>
+              <option value="all">Lahat ng Discounts</option>
               <option value="SNR">Senior Citizen lang</option>
               <option value="PWD">PWD lang</option>
+              <option value="5%">5% lang</option>
+              <option value="10%">10% lang</option>
+              <option value="20%">20% lang</option>
             </select>
             <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
             <span style={{ alignSelf:"center",fontSize:12,color:"#78716c" }}>hanggang</span>
