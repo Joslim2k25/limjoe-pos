@@ -2783,8 +2783,12 @@ export default function App() {
                   const otPay=Math.round(otHrs*otRate*100)/100;
                   const undertimeDed=Math.round(underHrs*hourlyRate*100)/100;
                   const grossPay=basicPay+otPay+holPay-undertimeDed;
-                  const isDeductionPeriod=new Date(payrollTo).getDate()===25;
-                  const statDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+                  // Manual Entry is meant for supplemental/corrective entries (e.g. an employee
+                  // whose DTR wasn't logged) — statutory deductions (SSS/PhilHealth/Pag-IBIG) are
+                  // already applied once in the main DTR-computed payroll table for this cutoff,
+                  // so Manual Entry never re-deducts them (would double-deduct the same employee).
+                  // Only the optional Bank Fee checkbox applies here.
+                  const statDed=0;
                   const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
                   const totalDed=statDed+bankFee;
                   const netPay=grossPay-totalDed;
