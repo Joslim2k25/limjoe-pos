@@ -2123,8 +2123,11 @@ export default function App() {
       const otPay=Math.round(otHours*otRate*100)/100;
       const undertimeDed=Math.round(undertimeHours*hourlyRate*100)/100;
       const grossPay=basicPay+otPay+holidayPay-undertimeDed;
-      const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
-      const statDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+      // Statutory deductions (SSS/PhilHealth/Pag-IBIG) apply only on the 11-25 cutoff
+      // (payrollTo day-of-month === 25) — not the 26-10 cutoff, and never for an employee
+      // who had zero days worked this period (no income to deduct against).
+      const isDeductionPeriod=new Date(payrollTo).getDate()===25;
+      const statDed=(isDeductionPeriod&&workDays>0)?PAYROLL_DEDUCTIONS:0;
       const totalDed=statDed+undertimeDed;
       const netPay=grossPay-statDed; // undertime already subtracted from grossPay above
       return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
@@ -2780,7 +2783,7 @@ export default function App() {
                   const otPay=Math.round(otHrs*otRate*100)/100;
                   const undertimeDed=Math.round(underHrs*hourlyRate*100)/100;
                   const grossPay=basicPay+otPay+holPay-undertimeDed;
-                  const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
+                  const isDeductionPeriod=new Date(payrollTo).getDate()===25;
                   const statDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
                   const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
                   const totalDed=statDed+bankFee;
