@@ -3298,6 +3298,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [searchMat, setSearchMat] = useState("");
+  const [reportDate, setReportDate] = useState(todayStr());
   const [editMode, setEditMode] = useState(false);
   const [editVals, setEditVals] = useState({}); // stockId -> new qty string
   const [editBeginVals, setEditBeginVals] = useState({}); // stockId -> new Beginning qty string (Admin/Owner only)
@@ -3309,24 +3310,28 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [renameVal, setRenameVal] = useState("");
   const [deletingId, setDeletingId] = useState(null); // materialId pending delete confirmation
 
-  useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId]);
+  useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId, reportDate]);
 
   // Auto-refresh every 20s so numbers stay live while the report is open —
-  // no need to close/reopen to see a sale that just got punched.
+  // no need to close/reopen to see a sale that just got punched. Only makes
+  // sense while viewing today; a past date's numbers are fixed/historical.
   useEffect(()=>{
+    if (reportDate !== todayStr()) return;
     const interval = setInterval(()=>{ if (!editMode) loadReport(); }, 20000);
     return ()=>clearInterval(interval);
-  }, [branchId, editMode]);
+  }, [branchId, editMode, reportDate]);
 
   async function loadReport() {
     setLoading(true);
-    const startISO = `${todayStr()}T00:00:00+08:00`;
+    const isToday = reportDate === todayStr();
+    const startISO = `${reportDate}T00:00:00+08:00`;
+    const endISO = `${reportDate}T23:59:59+08:00`;
     const [stockRows, logRows, snapshotRows] = await Promise.all([
       sb(`${BRANCH_STOCK_TABLE[branchId]}?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)`),
-      sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}`),
-      sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${todayStr()}`),
+      sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}&created_at=lte.${encodeURIComponent(endISO)}`),
+      sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${reportDate}`),
     ]);
-    // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage.
+    // Bucket that day's ledger entries per material: Used (sales), Delivered, Spoilage.
     // Manual edits / initial-stock entries are intentionally NOT bucketed here — Used and
     // Spoilage are the only two things that subtract from stock. Anything else that changed
     // stock outside those two paths will show up via the unreconciled check below instead.
@@ -3340,18 +3345,22 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
       else if (/delivery received/i.test(note)) agg[id].delivered += chg;
       else if (/spoilage\/waste/i.test(note)) agg[id].spoiled += Math.abs(chg);
     });
-    // Real captured snapshot (taken automatically at each material's first change today) —
+    // Real captured snapshot (taken automatically at each material's first change that day) —
     // not reverse-calculated, so it stays correct even if a log entry is ever missed.
     const snapMap = {};
     (snapshotRows||[]).forEach(s=>{ snapMap[s.material_id] = parseFloat(s.beginning_qty); });
     const built = (stockRows||[]).map(r=>{
       const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0 };
       const cost = r.raw_materials?.cost_per_unit || 0;
-      const ending = parseFloat(r.stock_qty);
+      const liveStock = parseFloat(r.stock_qty);
       // Fall back to reverse-calculation only if no snapshot exists yet (shouldn't happen after
       // the backfill, but covers a brand-new material added mid-day with no prior snapshot row).
-      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (ending - a.delivered + a.used + a.spoiled);
+      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (liveStock - a.delivered + a.used + a.spoiled);
       const expectedEnding = beginning + a.delivered - a.used - a.spoiled;
+      // For today, Ending = the live/current stock count (the true physical number right now).
+      // For a past date, there's no "live" stock for that day anymore — the only honest
+      // Ending is the reconciled Beginning + Delivered - Used - Spoiled for that date.
+      const ending = isToday ? liveStock : expectedEnding;
       const unreconciled = Math.abs(expectedEnding - ending) > 0.01;
       return {
         stockId: r.id,
@@ -3500,27 +3509,37 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
             <div>
               <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>📋 Inventory Summary Report</div>
-              <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>Kasalukuyang araw — {todayStr()}</div>
+              <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>{reportDate===todayStr()?`Kasalukuyang araw — ${reportDate}`:`Nakaraang araw — ${reportDate}`}</div>
             </div>
             <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
           </div>
-          <div style={{ display:"flex",justifyContent:"flex-end",marginTop:-6,marginBottom:4 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:-6,marginBottom:4,flexWrap:"wrap",gap:6 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+              <span style={{ fontSize:11,color:"#78716c",fontWeight:700 }}>📅 Piliin ang araw:</span>
+              <input type="date" value={reportDate} max={todayStr()} onChange={e=>e.target.value&&setReportDate(e.target.value)} style={{ padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
+              {reportDate!==todayStr()&&<button onClick={()=>setReportDate(todayStr())} style={{ border:"none",background:"#eff6ff",color:"#2563eb",borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:700,cursor:"pointer" }}>Ngayong araw</button>}
+            </div>
             <button onClick={loadReport} disabled={loading} style={{ border:"none",background:"transparent",color:"#2563eb",fontSize:11,fontWeight:700,cursor:loading?"default":"pointer",padding:"2px 4px" }}>{loading?"Nire-refresh...":"🔄 I-refresh ang datos"}</button>
           </div>
+          {reportDate!==todayStr() && (
+            <div style={{ background:"#fffbeb",border:"1px solid #fed7aa",borderRadius:8,padding:"6px 10px",fontSize:10,color:"#b45309",marginBottom:8 }}>
+              ℹ️ Nakikita mo ang historical na datos ng <b>{reportDate}</b> — Beginning/Delivered/Used/Spoilage/Ending para sa araw na iyon. Hindi pwedeng mag-Edit o mag-Add Item dito; bumalik sa "Ngayong araw" para gawin iyon.
+            </div>
+          )}
           <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
             <div style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#f8fafc",color:"#57534e",fontWeight:700 }}>📍 {branch?.name}{isAdminOwner&&<span style={{ fontWeight:400,color:"#94a3b8",marginLeft:4 }}>(piliin sa itaas na branch selector)</span>}</div>
             <div style={{ position:"relative",flex:1,minWidth:160 }}>
               <span style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8" }}>🔍</span>
               <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang material..." style={{ width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
             </div>
-            {canManageCatalog && !editMode && (
+            {canManageCatalog && !editMode && reportDate===todayStr() && (
               <button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:showAddMat?"#fef2f2":"#d97706",color:showAddMat?"#dc2626":"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Item"}</button>
             )}
-            {isAdminOwner && !editMode && (
+            {isAdminOwner && !editMode && reportDate===todayStr() && (
               <button onClick={startEdit} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:"#2563eb",color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>✏️ Edit Mode</button>
             )}
           </div>
-          {showAddMat && canManageCatalog && !editMode && (
+          {showAddMat && canManageCatalog && !editMode && reportDate===todayStr() && (
             <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginTop:8,padding:"10px",background:"#fffbeb",borderRadius:8,border:"1px solid #fed7aa" }}>
               <div style={{ flex:2,minWidth:120 }}>
                 <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Material name*</div>
