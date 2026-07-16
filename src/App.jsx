@@ -139,6 +139,7 @@ const PAYMENT_METHODS = [
   { key: "gcash", label: "GCash", emoji: "💚", color: "#2563eb", type: "cashless" },
   { key: "maya", label: "Maya", emoji: "💙", color: "#0284c7", type: "cashless" },
   { key: "gotyme", label: "GoTyme", emoji: "🏦", color: "#d97706", type: "cashless" },
+  { key: "cards", label: "Cards", emoji: "💳", color: "#7c3aed", type: "cashless" },
   { key: "foodpanda", label: "FoodPanda", emoji: "🐼", color: "#db2777", type: "online" },
   { key: "grabfood", label: "GrabFood", emoji: "🚗", color: "#16a34a", type: "online" },
   { key: "sm", label: "SM Online", emoji: "🏪", color: "#1d4ed8", type: "online" },
@@ -1260,7 +1261,7 @@ export default function App() {
   const discountAmt = cart.reduce((s,c)=>s+(c.price-getFinalPrice(c.price))*c.qty,0);
   const total = Math.round((subtotal-discountAmt)*100)/100;
   const change = cashGiven-total;
-  const isCashless = ["gcash","maya","gotyme"].includes(paymentMethod);
+  const isCashless = ["gcash","maya","gotyme","cards"].includes(paymentMethod);
   const canCharge = cart.length>0&&(isOnline||(isCashless&&paymentProofUrl&&referenceNumber.trim())||(!isCashless&&!isOnline&&cashGiven>=total));
 
   const handlePaymentProofCapture = async (file) => {
@@ -1370,7 +1371,7 @@ export default function App() {
 
   const getOrders = (date, branchId=null) => { if(branchId)return salesData[`${branchId}_${date}`]?.orders||[]; return BRANCHES.flatMap(b=>salesData[`${b.id}_${date}`]?.orders||[]); };
   const getExps = (date, branchId=null) => { if(branchId)return expenses[`${branchId}_${date}`]||[]; return BRANCHES.flatMap(b=>expenses[`${b.id}_${date}`]||[]); };
-  const calcSum = (allOrders) => { const orders=allOrders.filter(o=>!o.voided); let gross=0,discountTotal=0; const iM={},pmM={}; orders.forEach(o=>{ gross+=o.total; discountTotal+=o.discountAmt||0; o.items?.forEach(i=>{const k=`${i.name} (${i.size})`;if(!iM[k])iM[k]={qty:0,sales:0};iM[k].qty+=i.qty;iM[k].sales+=(i.finalPrice||i.price)*i.qty;}); if(!pmM[o.paymentMethod])pmM[o.paymentMethod]={sales:0,count:0}; pmM[o.paymentMethod].sales+=o.total;pmM[o.paymentMethod].count++; }); const cashless=(pmM.gcash?.sales||0)+(pmM.maya?.sales||0)+(pmM.gotyme?.sales||0); const online=(pmM.grabfood?.sales||0)+(pmM.foodpanda?.sales||0)+(pmM.sm?.sales||0); return{gross,txns:orders.length,discountTotal,cashless,online,top8:Object.entries(iM).sort((a,b)=>b[1].qty-a[1].qty).slice(0,8),pmSales:pmM}; };
+  const calcSum = (allOrders) => { const orders=allOrders.filter(o=>!o.voided); let gross=0,discountTotal=0; const iM={},pmM={}; orders.forEach(o=>{ gross+=o.total; discountTotal+=o.discountAmt||0; o.items?.forEach(i=>{const k=`${i.name} (${i.size})`;if(!iM[k])iM[k]={qty:0,sales:0};iM[k].qty+=i.qty;iM[k].sales+=(i.finalPrice||i.price)*i.qty;}); if(!pmM[o.paymentMethod])pmM[o.paymentMethod]={sales:0,count:0}; pmM[o.paymentMethod].sales+=o.total;pmM[o.paymentMethod].count++; }); const cashless=(pmM.gcash?.sales||0)+(pmM.maya?.sales||0)+(pmM.gotyme?.sales||0)+(pmM.cards?.sales||0); const online=(pmM.grabfood?.sales||0)+(pmM.foodpanda?.sales||0)+(pmM.sm?.sales||0); return{gross,txns:orders.length,discountTotal,cashless,online,top8:Object.entries(iM).sort((a,b)=>b[1].qty-a[1].qty).slice(0,8),pmSales:pmM}; };
 
   // ── X/Z READING RECEIPT BUILDER (BIR-style) — used for both on-screen preview and print ──
   const buildReadingHTML = (allOrders, branchLabel, dateLabel, title="X Reading Report", footNote="Interim reading — hindi nag-cclose ng araw") => {
@@ -1460,17 +1461,20 @@ export default function App() {
         const gcash = ords.filter(o=>o.paymentMethod==="gcash").reduce((s,o)=>s+o.total, 0);
         const maya = ords.filter(o=>o.paymentMethod==="maya").reduce((s,o)=>s+o.total, 0);
         const gotyme = ords.filter(o=>o.paymentMethod==="gotyme").reduce((s,o)=>s+o.total, 0);
+        const cards = ords.filter(o=>o.paymentMethod==="cards").reduce((s,o)=>s+o.total, 0);
         const grabfood = ords.filter(o=>o.paymentMethod==="grabfood").reduce((s,o)=>s+o.total, 0);
         const foodpanda = ords.filter(o=>o.paymentMethod==="foodpanda").reduce((s,o)=>s+o.total, 0);
         const sm = ords.filter(o=>o.paymentMethod==="sm").reduce((s,o)=>s+o.total, 0);
         const discount = ords.reduce((s,o)=>s+(o.discountAmt||0), 0);
+        const vatExempt = ords.filter(o=>o.discountType==="SNR"||o.discountType==="PWD").reduce((s,o)=>s+o.total, 0);
+        const vat = Math.round((gross-vatExempt)*12/112*100)/100;
         const expsRaw = getExps(dk, branch.id);
         const expenses = expsRaw.reduce((s,e)=>s+parseFloat(e.amount), 0);
         const expCOS = expsRaw.filter(e=>e.category==="Cost of Products/Ingredients").reduce((s,e)=>s+parseFloat(e.amount), 0);
         const expShipping = expsRaw.filter(e=>e.category==="Shipping Fee").reduce((s,e)=>s+parseFloat(e.amount), 0);
         const expOffice = expsRaw.filter(e=>e.category==="Office Supplies").reduce((s,e)=>s+parseFloat(e.amount), 0);
         const expMisc = expsRaw.filter(e=>e.category==="Miscellaneous").reduce((s,e)=>s+parseFloat(e.amount), 0);
-        const net = gross - gcash - maya - gotyme - grabfood - foodpanda - sm - discount - expenses;
+        const net = gross - gcash - maya - gotyme - cards - grabfood - foodpanda - sm - discount - expenses;
         const cohKey = `${branch.id}_${dk}`;
         const coh = cashOnHand[cohKey] ?? "";
         rows.push({
@@ -1481,10 +1485,12 @@ export default function App() {
           "GCash": gcash,
           "Maya": maya,
           "GoTyme": gotyme,
+          "Cards": cards,
           "GrabFood": grabfood,
           "FoodPanda": foodpanda,
           "SM Online": sm,
           "Discount": discount,
+          "VAT": vat,
           "Exp - Cost of Products": expCOS,
           "Exp - Shipping Fee": expShipping,
           "Exp - Office Supplies": expOffice,
@@ -1500,7 +1506,7 @@ export default function App() {
     // Add totals row
     if (rows.length > 0) {
       const totals = { "Date": "TOTAL", "Branch": "", "Transactions": rows.reduce((s,r)=>s+r["Transactions"],0) };
-      ["Gross Sales","GCash","Maya","GoTyme","GrabFood","FoodPanda","SM Online","Discount","Exp - Cost of Products","Exp - Shipping Fee","Exp - Office Supplies","Exp - Miscellaneous","Total Expenses","NET SALES"].forEach(k => {
+      ["Gross Sales","GCash","Maya","GoTyme","Cards","GrabFood","FoodPanda","SM Online","Discount","VAT","Exp - Cost of Products","Exp - Shipping Fee","Exp - Office Supplies","Exp - Miscellaneous","Total Expenses","NET SALES"].forEach(k => {
         totals[k] = rows.reduce((s,r)=>s+(r[k]||0), 0);
       });
       totals["Cash on Hand"] = "";
@@ -2100,7 +2106,7 @@ export default function App() {
   if (env==="admin") {
     const rOrders=getOrders(reportDate,bFilter); const rExps=getExps(reportDate,bFilter); const rSum=calcSum(rOrders); const rExpTotal=rExps.reduce((s,e)=>s+parseFloat(e.amount),0); const rNet=rSum.gross-rExpTotal;
     const todayOrders=getOrders(todayStr(),bFilter); const todaySum=calcSum(todayOrders); const todayExp=getExps(todayStr(),bFilter).reduce((s,e)=>s+parseFloat(e.amount),0);
-    const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
+    const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.cards||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; const vatExempt=ords.filter(o=>o.discountType==="SNR"||o.discountType==="PWD").reduce((s,o)=>s+o.total,0); const vatableSales=gross-vatExempt; const vatAmt=Math.round(vatableSales*12/112*100)/100; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,vatAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{
       let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0;
       const start=new Date(payrollFrom),end=new Date(payrollTo);
@@ -2127,8 +2133,11 @@ export default function App() {
       const otPay=Math.round(otHours*otRate*100)/100;
       const undertimeDed=Math.round(undertimeHours*hourlyRate*100)/100;
       const grossPay=basicPay+otPay+holidayPay-undertimeDed;
-      const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
-      const statDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+      // Statutory deductions (SSS/PhilHealth/Pag-IBIG) apply only on the 11-25 cutoff
+      // (payrollTo day-of-month === 25) — not the 26-10 cutoff, and never for an employee
+      // who had zero days worked this period (no income to deduct against).
+      const isDeductionPeriod=new Date(payrollTo).getDate()===25;
+      const statDed=(isDeductionPeriod&&workDays>0)?PAYROLL_DEDUCTIONS:0;
       const totalDed=statDed+undertimeDed;
       const netPay=grossPay-statDed; // undertime already subtracted from grossPay above
       return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
@@ -2575,10 +2584,12 @@ export default function App() {
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>💚 GCash</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>💙 Maya</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#93c5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🏦 GoTyme</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#c4b5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>💳 Cards</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#f9a8d4",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🐼 FoodPanda</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🚗 GrabFood</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#86efac",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>🏪 SM Online</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Discount</th>
+          <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fcd34d",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>VAT</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fca5a5",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Expenses</th>
           <th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#fde68a",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>NET SALES</th>
           {bFilter!==null&&<th style={{ padding:"10px 8px",textAlign:"right",fontWeight:700,color:"#c4b5fd",position:"sticky",top:0,zIndex:5,background:"#1a1a2e" }}>Cash on Hand</th>}
@@ -2598,10 +2609,12 @@ export default function App() {
               <td onClick={()=>(r.gcash||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"gcash",label:"💚 GCash"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.gcash||0)>0?"#2563eb":C.text3,cursor:(r.gcash||0)>0?"pointer":"default",textDecoration:(r.gcash||0)>0?"underline":"none" }}>{(r.gcash||0)>0?`₱${(r.gcash||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.maya||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"maya",label:"💙 Maya"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.maya||0)>0?"#0284c7":C.text3,cursor:(r.maya||0)>0?"pointer":"default",textDecoration:(r.maya||0)>0?"underline":"none" }}>{(r.maya||0)>0?`₱${(r.maya||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.gotyme||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"gotyme",label:"🏦 GoTyme"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.gotyme||0)>0?C.warning:C.text3,cursor:(r.gotyme||0)>0?"pointer":"default",textDecoration:(r.gotyme||0)>0?"underline":"none" }}>{(r.gotyme||0)>0?`₱${(r.gotyme||0).toFixed(2)}`:"—"}</td>
+              <td onClick={()=>(r.cards||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"cards",label:"💳 Cards"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.cards||0)>0?"#7c3aed":C.text3,cursor:(r.cards||0)>0?"pointer":"default",textDecoration:(r.cards||0)>0?"underline":"none" }}>{(r.cards||0)>0?`₱${(r.cards||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.foodpanda||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"foodpanda",label:"🐼 FoodPanda"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.foodpanda||0)>0?"#db2777":C.text3,cursor:(r.foodpanda||0)>0?"pointer":"default",textDecoration:(r.foodpanda||0)>0?"underline":"none" }}>{(r.foodpanda||0)>0?`₱${(r.foodpanda||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.grabfood||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"grabfood",label:"🚗 GrabFood"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.grabfood||0)>0?C.success:C.text3,cursor:(r.grabfood||0)>0?"pointer":"default",textDecoration:(r.grabfood||0)>0?"underline":"none" }}>{(r.grabfood||0)>0?`₱${(r.grabfood||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.sm||0)>0&&setShowTxnDrill({date:r.date,type:"payment",filterKey:"sm",label:"🏪 SM Online"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.sm||0)>0?C.info:C.text3,cursor:(r.sm||0)>0?"pointer":"default",textDecoration:(r.sm||0)>0?"underline":"none" }}>{(r.sm||0)>0?`₱${(r.sm||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>(r.discAmt||0)>0&&setShowTxnDrill({date:r.date,type:"discount",filterKey:null,label:"🏷️ Discount"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.discAmt||0)>0?C.danger:C.text3,cursor:(r.discAmt||0)>0?"pointer":"default",textDecoration:(r.discAmt||0)>0?"underline":"none" }}>{(r.discAmt||0)>0?`-₱${(r.discAmt||0).toFixed(2)}`:"—"}</td>
+              <td onClick={()=>(r.vatAmt||0)>0&&setShowTxnDrill({date:r.date,type:"vat",filterKey:null,label:"🧾 VAT"})} style={{ padding:"9px 8px",textAlign:"right",color:(r.vatAmt||0)>0?"#d97706":C.text3,cursor:(r.vatAmt||0)>0?"pointer":"default",textDecoration:(r.vatAmt||0)>0?"underline":"none" }}>{(r.vatAmt||0)>0?`₱${(r.vatAmt||0).toFixed(2)}`:"—"}</td>
               <td onClick={()=>r.expenses>0&&setShowTxnDrill({date:r.date,type:"expense",filterKey:null,label:"💸 Expenses"})} style={{ padding:"9px 8px",textAlign:"right",color:r.expenses>0?C.danger:C.text3,cursor:r.expenses>0?"pointer":"default",textDecoration:r.expenses>0?"underline":"none" }}>{r.expenses>0?`-₱${r.expenses.toFixed(2)}`:"—"}</td>
               <td style={{ padding:"9px 8px",textAlign:"right",fontWeight:900,color:C.warning }}>₱{r.net.toFixed(2)}</td>
               {bFilter!==null&&<td style={{ padding:"9px 8px",textAlign:"right" }}>
@@ -2633,10 +2646,12 @@ export default function App() {
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#93c5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.gcash||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#93c5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.maya||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#93c5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.gotyme||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#c4b5fd" }}>₱{monthRows.reduce((s,r)=>s+(r.cards||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#f9a8d4" }}>₱{monthRows.reduce((s,r)=>s+(r.foodpanda||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#86efac" }}>₱{monthRows.reduce((s,r)=>s+(r.grabfood||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#86efac" }}>₱{monthRows.reduce((s,r)=>s+(r.sm||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#fca5a5" }}>-₱{monthRows.reduce((s,r)=>s+(r.discAmt||0),0).toFixed(2)}</td>
+          <td style={{ padding:"10px 8px",textAlign:"right",color:"#fcd34d" }}>₱{monthRows.reduce((s,r)=>s+(r.vatAmt||0),0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#fca5a5" }}>-₱{monthRows.reduce((s,r)=>s+r.expenses,0).toFixed(2)}</td>
           <td style={{ padding:"10px 8px",textAlign:"right",color:"#fde68a",fontSize:13 }}>₱{monthRows.reduce((s,r)=>s+r.net,0).toFixed(2)}</td>
           {bFilter!==null&&<td colSpan={3}></td>}
@@ -2778,8 +2793,12 @@ export default function App() {
                   const otPay=Math.round(otHrs*otRate*100)/100;
                   const undertimeDed=Math.round(underHrs*hourlyRate*100)/100;
                   const grossPay=basicPay+otPay+holPay-undertimeDed;
-                  const isDeductionPeriod=new Date(payrollTo).getDate()>=25;
-                  const statDed=isDeductionPeriod?PAYROLL_DEDUCTIONS:0;
+                  // Manual Entry is meant for supplemental/corrective entries (e.g. an employee
+                  // whose DTR wasn't logged) — statutory deductions (SSS/PhilHealth/Pag-IBIG) are
+                  // already applied once in the main DTR-computed payroll table for this cutoff,
+                  // so Manual Entry never re-deducts them (would double-deduct the same employee).
+                  // Only the optional Bank Fee checkbox applies here.
+                  const statDed=0;
                   const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
                   const totalDed=statDed+bankFee;
                   const netPay=grossPay-totalDed;
@@ -3296,6 +3315,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [searchMat, setSearchMat] = useState("");
+  const [reportDate, setReportDate] = useState(todayStr());
   const [editMode, setEditMode] = useState(false);
   const [editVals, setEditVals] = useState({}); // stockId -> new qty string
   const [editBeginVals, setEditBeginVals] = useState({}); // stockId -> new Beginning qty string (Admin/Owner only)
@@ -3307,24 +3327,28 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [renameVal, setRenameVal] = useState("");
   const [deletingId, setDeletingId] = useState(null); // materialId pending delete confirmation
 
-  useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId]);
+  useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId, reportDate]);
 
   // Auto-refresh every 20s so numbers stay live while the report is open —
-  // no need to close/reopen to see a sale that just got punched.
+  // no need to close/reopen to see a sale that just got punched. Only makes
+  // sense while viewing today; a past date's numbers are fixed/historical.
   useEffect(()=>{
+    if (reportDate !== todayStr()) return;
     const interval = setInterval(()=>{ if (!editMode) loadReport(); }, 20000);
     return ()=>clearInterval(interval);
-  }, [branchId, editMode]);
+  }, [branchId, editMode, reportDate]);
 
   async function loadReport() {
     setLoading(true);
-    const startISO = `${todayStr()}T00:00:00+08:00`;
+    const isToday = reportDate === todayStr();
+    const startISO = `${reportDate}T00:00:00+08:00`;
+    const endISO = `${reportDate}T23:59:59+08:00`;
     const [stockRows, logRows, snapshotRows] = await Promise.all([
       sb(`${BRANCH_STOCK_TABLE[branchId]}?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)`),
-      sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}`),
-      sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${todayStr()}`),
+      sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}&created_at=lte.${encodeURIComponent(endISO)}`),
+      sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${reportDate}`),
     ]);
-    // Bucket today's ledger entries per material: Used (sales), Delivered, Spoilage.
+    // Bucket that day's ledger entries per material: Used (sales), Delivered, Spoilage.
     // Manual edits / initial-stock entries are intentionally NOT bucketed here — Used and
     // Spoilage are the only two things that subtract from stock. Anything else that changed
     // stock outside those two paths will show up via the unreconciled check below instead.
@@ -3338,18 +3362,22 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
       else if (/delivery received/i.test(note)) agg[id].delivered += chg;
       else if (/spoilage\/waste/i.test(note)) agg[id].spoiled += Math.abs(chg);
     });
-    // Real captured snapshot (taken automatically at each material's first change today) —
+    // Real captured snapshot (taken automatically at each material's first change that day) —
     // not reverse-calculated, so it stays correct even if a log entry is ever missed.
     const snapMap = {};
     (snapshotRows||[]).forEach(s=>{ snapMap[s.material_id] = parseFloat(s.beginning_qty); });
     const built = (stockRows||[]).map(r=>{
       const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0 };
       const cost = r.raw_materials?.cost_per_unit || 0;
-      const ending = parseFloat(r.stock_qty);
+      const liveStock = parseFloat(r.stock_qty);
       // Fall back to reverse-calculation only if no snapshot exists yet (shouldn't happen after
       // the backfill, but covers a brand-new material added mid-day with no prior snapshot row).
-      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (ending - a.delivered + a.used + a.spoiled);
+      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (liveStock - a.delivered + a.used + a.spoiled);
       const expectedEnding = beginning + a.delivered - a.used - a.spoiled;
+      // For today, Ending = the live/current stock count (the true physical number right now).
+      // For a past date, there's no "live" stock for that day anymore — the only honest
+      // Ending is the reconciled Beginning + Delivered - Used - Spoiled for that date.
+      const ending = isToday ? liveStock : expectedEnding;
       const unreconciled = Math.abs(expectedEnding - ending) > 0.01;
       return {
         stockId: r.id,
@@ -3498,27 +3526,37 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
             <div>
               <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>📋 Inventory Summary Report</div>
-              <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>Kasalukuyang araw — {todayStr()}</div>
+              <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>{reportDate===todayStr()?`Kasalukuyang araw — ${reportDate}`:`Nakaraang araw — ${reportDate}`}</div>
             </div>
             <button onClick={onClose} style={{ border:"none",background:"#f1f5f9",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
           </div>
-          <div style={{ display:"flex",justifyContent:"flex-end",marginTop:-6,marginBottom:4 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:-6,marginBottom:4,flexWrap:"wrap",gap:6 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+              <span style={{ fontSize:11,color:"#78716c",fontWeight:700 }}>📅 Piliin ang araw:</span>
+              <input type="date" value={reportDate} max={todayStr()} onChange={e=>e.target.value&&setReportDate(e.target.value)} style={{ padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:12 }}/>
+              {reportDate!==todayStr()&&<button onClick={()=>setReportDate(todayStr())} style={{ border:"none",background:"#eff6ff",color:"#2563eb",borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:700,cursor:"pointer" }}>Ngayong araw</button>}
+            </div>
             <button onClick={loadReport} disabled={loading} style={{ border:"none",background:"transparent",color:"#2563eb",fontSize:11,fontWeight:700,cursor:loading?"default":"pointer",padding:"2px 4px" }}>{loading?"Nire-refresh...":"🔄 I-refresh ang datos"}</button>
           </div>
+          {reportDate!==todayStr() && (
+            <div style={{ background:"#fffbeb",border:"1px solid #fed7aa",borderRadius:8,padding:"6px 10px",fontSize:10,color:"#b45309",marginBottom:8 }}>
+              ℹ️ Nakikita mo ang historical na datos ng <b>{reportDate}</b> — Beginning/Delivered/Used/Spoilage/Ending para sa araw na iyon. Hindi pwedeng mag-Edit o mag-Add Item dito; bumalik sa "Ngayong araw" para gawin iyon.
+            </div>
+          )}
           <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
             <div style={{ padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#f8fafc",color:"#57534e",fontWeight:700 }}>📍 {branch?.name}{isAdminOwner&&<span style={{ fontWeight:400,color:"#94a3b8",marginLeft:4 }}>(piliin sa itaas na branch selector)</span>}</div>
             <div style={{ position:"relative",flex:1,minWidth:160 }}>
               <span style={{ position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8" }}>🔍</span>
               <input value={searchMat} onChange={e=>setSearchMat(e.target.value)} placeholder="Hanapin ang material..." style={{ width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,boxSizing:"border-box" }}/>
             </div>
-            {canManageCatalog && !editMode && (
+            {canManageCatalog && !editMode && reportDate===todayStr() && (
               <button onClick={()=>setShowAddMat(s=>!s)} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:showAddMat?"#fef2f2":"#d97706",color:showAddMat?"#dc2626":"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddMat?"✕ Cancel":"+ Add Item"}</button>
             )}
-            {isAdminOwner && !editMode && (
+            {isAdminOwner && !editMode && reportDate===todayStr() && (
               <button onClick={startEdit} style={{ padding:"7px 14px",borderRadius:8,border:"none",background:"#2563eb",color:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>✏️ Edit Mode</button>
             )}
           </div>
-          {showAddMat && canManageCatalog && !editMode && (
+          {showAddMat && canManageCatalog && !editMode && reportDate===todayStr() && (
             <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginTop:8,padding:"10px",background:"#fffbeb",borderRadius:8,border:"1px solid #fed7aa" }}>
               <div style={{ flex:2,minWidth:120 }}>
                 <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Material name*</div>
@@ -3681,13 +3719,13 @@ function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose
       return;
     }
     const branchFilter = branchId ? `&branch_id=eq.${branchId}` : "";
-    const typeFilter = type==="payment" ? `&payment_method=eq.${filterKey}` : `&discount_type=not.is.null`;
+    const typeFilter = type==="payment" ? `&payment_method=eq.${filterKey}` : type==="discount" ? `&discount_type=not.is.null` : "";
     const data = await sb(`orders?select=*,order_items(*),branches(name)&order_date=eq.${date}${branchFilter}${typeFilter}&order=order_time.desc`);
-    if (data) setOrders(data);
+    if (data) setOrders(type==="vat" ? data.filter(o=>o.discount_type!=="SNR"&&o.discount_type!=="PWD") : data);
     setLoading(false);
   }
 
-  const total = type==="expense" ? expenses.reduce((s,e)=>s+parseFloat(e.amount||0),0) : orders.reduce((s,o)=>s+parseFloat(o.total||0),0);
+  const total = type==="expense" ? expenses.reduce((s,e)=>s+parseFloat(e.amount||0),0) : type==="vat" ? Math.round(orders.reduce((s,o)=>s+parseFloat(o.total||0),0)*12/112*100)/100 : orders.reduce((s,o)=>s+parseFloat(o.total||0),0);
 
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3500,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -3720,6 +3758,9 @@ function TransactionDrillModal({ date, type, filterKey, label, branchId, onClose
                   <div style={{ fontWeight:800,fontSize:13,color:"#1c1917" }}>#{o.order_num} · {o.order_time?.slice(0,8)}</div>
                   <div style={{ fontWeight:900,fontSize:15,color:"#16a34a" }}>₱{parseFloat(o.total).toFixed(2)}</div>
                 </div>
+                {type==="vat" && (
+                  <div style={{ fontSize:11,color:"#d97706",fontWeight:700,marginBottom:4 }}>VAT (12%): ₱{(parseFloat(o.total)*12/112).toFixed(2)} · Vatable: ₱{(parseFloat(o.total)*100/112).toFixed(2)}</div>
+                )}
                 <div style={{ fontSize:11,color:"#78716c",marginBottom:6 }}>
                   {o.cashier_name} · {o.branches?.name}
                   {o.discount_type&&<span> · <span style={{ color:"#d97706",fontWeight:700 }}>{o.discount_type}</span> (-₱{parseFloat(o.discount_amt||0).toFixed(2)})</span>}
@@ -3854,4 +3895,3 @@ function DiscountIdLogModal({ onClose, currentBranch }) {
     </div>
   );
 }
-
