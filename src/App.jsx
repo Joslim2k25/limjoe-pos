@@ -558,6 +558,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
   const [editData, setEditData] = useState({});
   const [showAdd, setShowAdd] = useState(false);
   const [searchProd, setSearchProd] = useState("");
+  const [onlineFilter, setOnlineFilter] = useState("all"); // all | has | missing
   const [newProd, setNewProd] = useState({ name:"", category: categories[0]?.key||"", price:"", price_medium:"", price_large:"", price_online_medium:"", price_online_large:"", description:"", is_available: true });
   const isAdmin = ROLE_LEVEL[userRole] >= 3;
   const isPriceEditable = ROLE_LEVEL[userRole] >= 3; // admin/owner ONLY — cashier AND manager cannot change prices
@@ -596,7 +597,10 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
     toast("Deleted: " + name); loadProducts(); onReloadProducts?.();
   }
 
-  const filteredProds = searchProd.trim() ? products.filter(p=>p.name.toLowerCase().includes(searchProd.toLowerCase())||p.category.toLowerCase().includes(searchProd.toLowerCase())) : products;
+  function hasOnlinePrice(p) { return !!(p.price_online_medium || p.price_online_large); }
+  const searchedProds = searchProd.trim() ? products.filter(p=>p.name.toLowerCase().includes(searchProd.toLowerCase())||p.category.toLowerCase().includes(searchProd.toLowerCase())) : products;
+  const filteredProds = onlineFilter==="all" ? searchedProds : onlineFilter==="has" ? searchedProds.filter(hasOnlinePrice) : searchedProds.filter(p=>!hasOnlinePrice(p));
+  const missingOnlineCount = products.filter(p=>!hasOnlinePrice(p)).length;
   const grouped = filteredProds.reduce((acc, p) => { if (!acc[p.category]) acc[p.category]=[]; acc[p.category].push(p); return acc; }, {});
   // Flag products that share the same trimmed/lowercased name — usually caused by
   // re-uploading via Excel with a trailing/leading space, creating a lookalike duplicate.
@@ -622,6 +626,11 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
             {searchProd&&<button onClick={()=>setSearchProd("")} style={{ position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",cursor:"pointer",fontSize:14,color:C.text3 }}>✕</button>}
           </div>
           {searchProd&&<div style={{ fontSize:11,color:C.text3,marginTop:4 }}>{filteredProds.length===0?<span style={{ color:C.danger }}>❌ Walang nahanap na "{searchProd}"</span>:<span style={{ color:C.success }}>✅ {filteredProds.length} product(s) nahanap</span>}</div>}
+          <div style={{ display:"flex",gap:6,marginTop:8,flexWrap:"wrap" }}>
+            {[{key:"all",label:"Lahat"},{key:"has",label:"🛵 May Online Price"},{key:"missing",label:`⚠️ Walang Online Price (${missingOnlineCount})`}].map(f=>(
+              <button key={f.key} onClick={()=>setOnlineFilter(f.key)} style={{ padding:"5px 12px",borderRadius:20,border:`1.5px solid ${onlineFilter===f.key?C.accent:C.border}`,background:onlineFilter===f.key?C.accent+"15":"white",color:onlineFilter===f.key?C.accent:C.text3,fontWeight:onlineFilter===f.key?700:500,fontSize:11,cursor:"pointer" }}>{f.label}</button>
+            ))}
+          </div>
         </div>
 
         <div style={{ padding:"16px 22px" }}>
@@ -743,6 +752,7 @@ function ProductEditorModal({ onClose, toast, userRole, categories, onReloadProd
                             {p.name} {!p.is_available&&<span style={{ fontSize:10,color:C.danger }}>(hidden)</span>}
                             {isDupe(p)&&<span style={{ fontSize:9,color:"#dc2626",background:"#fef2f2",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:6 }}>⚠️ posibleng duplicate</span>}
                             {hasExtraSpace(p)&&<span style={{ fontSize:9,color:"#d97706",background:"#fffbeb",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:6 }}>may extra space</span>}
+                            {hasOnlinePrice(p)?<span style={{ fontSize:9,color:"#16a34a",background:"#f0fdf4",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:6 }}>🛵 ₱{p.price_online_medium||"-"}/₱{p.price_online_large||"-"}</span>:<span style={{ fontSize:9,color:"#94a3b8",background:"#f8fafc",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:6 }}>⚠️ walang online price</span>}
                           </div>
                           <div style={{ fontSize:11,color:C.text3 }}>{p.description||""}</div>
                         </div>
