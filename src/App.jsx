@@ -1081,6 +1081,11 @@ export default function App() {
   const [salesLogSearch, setSalesLogSearch] = useState("");
   const [salesLogFrom, setSalesLogFrom] = useState(todayStr());
   const [salesLogTo, setSalesLogTo] = useState(todayStr());
+  const [expensesAdminFrom, setExpensesAdminFrom] = useState(todayStr());
+  const [expensesAdminTo, setExpensesAdminTo] = useState(todayStr());
+  const [expensesAdminSearch, setExpensesAdminSearch] = useState("");
+  const [editExpenseId, setEditExpenseId] = useState(null);
+  const [editExpenseVals, setEditExpenseVals] = useState({});
   const [reportDate, setReportDate] = useState(todayStr());
   const [dtrWeekStart, setDtrWeekStart] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-d.getDay()); return d.toISOString().slice(0,10); });
   const [wideLayout, setWideLayout] = useState(typeof window!=="undefined" && window.innerWidth >= 880);
@@ -1199,7 +1204,7 @@ export default function App() {
         orders.forEach(o=>{ const bk=`${o.branch_id}_${o.order_date}`; if(!ns[bk])ns[bk]={orders:[]}; ns[bk].orders.push({ id:o.order_num, time:o.order_time?.slice(0,8)||"", date:o.order_date, branch:BRANCHES.find(b=>b.id===o.branch_id)?.name||"", branchId:o.branch_id, cashier:o.cashier_name, paymentMethod:o.payment_method, items:itemsByOrder[o.id]||[], subtotal:parseFloat(o.subtotal||0), discountType:o.discount_type, discountAmt:parseFloat(o.discount_amt||0), total:parseFloat(o.total||0), cash:parseFloat(o.cash_given||0), change:parseFloat(o.change_given||0), voided:o.is_voided||false, voidReason:o.void_reason||null }); });
       }
       const ne={};
-      (exps||[]).forEach(e=>{ const bk=`${e.branch_id}_${e.expense_date}`; if(!ne[bk])ne[bk]=[]; ne[bk].push({ desc:e.description, category:e.category||"Miscellaneous", amount:parseFloat(e.amount), time:e.expense_time?.slice(0,8)||"", branch:BRANCHES.find(b=>b.id===e.branch_id)?.name||"", cashier:e.added_by||"" }); });
+      (exps||[]).forEach(e=>{ const bk=`${e.branch_id}_${e.expense_date}`; if(!ne[bk])ne[bk]=[]; ne[bk].push({ id:e.id, desc:e.description, category:e.category||"Miscellaneous", amount:parseFloat(e.amount), time:e.expense_time?.slice(0,8)||"", branch:BRANCHES.find(b=>b.id===e.branch_id)?.name||"", branchId:e.branch_id, date:e.expense_date, cashier:e.added_by||"" }); });
       const nd={};
       (dtrRows||[]).forEach(r=>{ const k=`${r.employee_id}_${r.branch_id}_${r.dtr_date}`; if(!nd[k])nd[k]=[]; nd[k].push({ in:r.time_in?.slice(0,8)||"", out:r.time_out?r.time_out.slice(0,8):null, name:r.employee_name }); });
       const coh={};
@@ -1327,13 +1332,40 @@ export default function App() {
     else toast(`⚠️ Cloud save FAILED: ${lastSbError||"unknown"}`, "err");
   };
 
+  const [savingExpense, setSavingExpense] = useState(false);
   const addExpense = async () => {
     if (!expDesc.trim()||!expAmt) { toast("Lagyan ng description at amount!","err"); return; }
+    if (savingExpense) return; // guard against double-click/double-tap submitting the same expense twice
+    setSavingExpense(true);
     const dk=todayStr(); const bk=`${currentBranch.id}_${dk}`;
     const ne={...expenses}; if(!ne[bk])ne[bk]=[]; ne[bk].push({desc:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),time:nowStr(),branch:currentBranch.name,cashier:currentUser?.name});
     setExpenses(ne); await persist(EXP_KEY,ne); setExpDesc(""); setExpAmt("");
     try { const r=await sb("expenses","POST",{branch_id:currentBranch.id,description:expDesc.trim(),category:expCategory,amount:parseFloat(expAmt),expense_date:dk,expense_time:nowStr(),added_by:currentUser?.name}); if(r&&r[0]){toast(`Expense ₱${parseFloat(expAmt).toLocaleString()} saved ☁️`); auditLog('EXPENSE', `₱${parseFloat(expAmt).toFixed(2)} — ${expCategory} — ${expDesc.trim()}`, currentUser, currentBranch.id, currentBranch.name);} else toast("⚠️ Local only","err"); } catch {}
+    setSavingExpense(false);
   };
+
+  async function saveExpenseEdit(exp) {
+    if (!exp.id) { toast("Kailangan mo munang i-reload ang page para ma-edit ito.", "err"); return; }
+    const newDesc = editExpenseVals.desc ?? exp.desc;
+    const newAmt = parseFloat(editExpenseVals.amount ?? exp.amount);
+    const newCat = editExpenseVals.category ?? exp.category;
+    if (!newDesc.trim() || isNaN(newAmt) || newAmt <= 0) { toast("Kulang o mali ang detalye!", "err"); return; }
+    await sb(`expenses?id=eq.${exp.id}`, "PATCH", { description: newDesc.trim(), amount: newAmt, category: newCat });
+    if (lastSbError) { toast("Hindi na-save: "+lastSbError, "err"); return; }
+    auditLog('EXPENSE_EDIT', `Expense edited: "${exp.desc}" ₱${exp.amount} → "${newDesc.trim()}" ₱${newAmt}`, currentUser, exp.branchId, exp.branch);
+    toast("✅ Na-update ang expense!");
+    setEditExpenseId(null); setEditExpenseVals({});
+    await loadFromSupabase();
+  }
+
+  async function deleteExpenseEntry(exp) {
+    if (!exp.id) { toast("Kailangan mo munang i-reload ang page para ma-delete ito.", "err"); return; }
+    await sb(`expenses?id=eq.${exp.id}`, "DELETE");
+    if (lastSbError) { toast("Hindi na-delete: "+lastSbError, "err"); return; }
+    auditLog('EXPENSE_DELETE', `Expense deleted: "${exp.desc}" — ₱${exp.amount} (${exp.category}) — ${exp.date}`, currentUser, exp.branchId, exp.branch);
+    toast("✅ Natanggal ang expense!");
+    await loadFromSupabase();
+  }
 
   const createEmployee = async () => {
     if (!newEmpName.trim()) { toast("Lagyan ng pangalan!","err"); return; }
@@ -2074,7 +2106,7 @@ export default function App() {
               <div style={{ display:"flex",gap:5,marginBottom:4 }}>
                 <input value={expDesc} onChange={e=>setExpDesc(e.target.value)} placeholder="Description" style={{ flex:2,padding:"7px 9px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.text,outline:"none" }}/>
                 <input type="number" value={expAmt} onChange={e=>setExpAmt(e.target.value)} placeholder="₱" style={{ flex:1,padding:"7px 7px",fontSize:11,borderRadius:7,border:`1.5px solid ${C.border}`,background:"white",color:C.warning,outline:"none" }}/>
-                <button onClick={addExpense} style={{ padding:"7px 11px",background:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:900,cursor:"pointer",fontSize:13 }}>+</button>
+                <button onClick={addExpense} disabled={savingExpense} style={{ padding:"7px 11px",background:savingExpense?C.bg3:C.primary,border:"none",borderRadius:7,color:"white",fontWeight:900,cursor:savingExpense?"default":"pointer",fontSize:13 }}>{savingExpense?"…":"+"}</button>
               </div>
               <div style={{ fontSize:9,color:C.danger,fontWeight:700 }}>Today: ₱{getExps(todayStr(),currentBranch.id).reduce((s,e)=>s+parseFloat(e.amount),0).toFixed(2)}</div>
               {getExps(todayStr(),currentBranch.id).length>0&&(
@@ -2143,7 +2175,7 @@ export default function App() {
       return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
     });
 
-    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
+    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"expenses",label:"💸 Expenses"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
 
     return (
       <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden",color:C.text }}>
@@ -2534,6 +2566,92 @@ export default function App() {
                           <td style={{ padding:"7px 10px",textAlign:"right",color:o.discountAmt?C.warning:C.text3 }}>{o.discountAmt?`-₱${o.discountAmt.toFixed(0)} (${o.discountType})`:"—"}</td>
                           <td style={{ padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.success }}>₱{o.total.toFixed(2)}</td>
                           <td style={{ padding:"7px 10px",textAlign:"center" }}>{o.voided?<span style={{ background:C.danger,color:"white",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>VOIDED</span>:<span style={{ background:C.successBg,color:C.success,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:700 }}>OK</span>}</td>
+                        </tr>
+                      );})}
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>);
+          })()}
+
+          {adminTab==="expenses"&&(()=>{
+            const rangeExps = (()=>{ const out=[]; const d=new Date(expensesAdminFrom+"T00:00:00"); const end=new Date(expensesAdminTo+"T00:00:00"); if(end<d) return out; while(d<=end){ getExps(d.toISOString().slice(0,10), bFilter).forEach(e=>out.push({...e, date: e.date || d.toISOString().slice(0,10)})); d.setDate(d.getDate()+1); } return out; })();
+            const filteredExps = rangeExps.filter(e=>{
+              if (!expensesAdminSearch.trim()) return true;
+              const q = expensesAdminSearch.toLowerCase();
+              return (e.desc||"").toLowerCase().includes(q) || (e.category||"").toLowerCase().includes(q) || (e.branch||"").toLowerCase().includes(q) || (e.cashier||"").toLowerCase().includes(q);
+            }).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+            // Flag likely double-punch duplicates: same branch+date+description+amount within the same minute.
+            const dupeKeyCounts = {};
+            filteredExps.forEach(e=>{ const k=`${e.branchId}_${e.date}_${(e.desc||"").trim().toLowerCase()}_${e.amount}_${(e.time||"").slice(0,5)}`; dupeKeyCounts[k]=(dupeKeyCounts[k]||0)+1; });
+            function isLikelyDupe(e) { return dupeKeyCounts[`${e.branchId}_${e.date}_${(e.desc||"").trim().toLowerCase()}_${e.amount}_${(e.time||"").slice(0,5)}`] > 1; }
+            const totalAmt = filteredExps.reduce((s,e)=>s+parseFloat(e.amount),0);
+            return (<div>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}>
+                <div style={PT}>💸 Expenses Management</div>
+                <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center" }}>
+                  <input type="date" value={expensesAdminFrom} onChange={e=>setExpensesAdminFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                  <span style={{ fontSize:11,color:C.text3 }}>hanggang</span>
+                  <input type="date" value={expensesAdminTo} onChange={e=>setExpensesAdminTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/>
+                  <select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}>
+                    <option value="all">🏪 Lahat ng Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ position:"relative",marginBottom:14 }}>
+                <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.text3 }}>🔍</span>
+                <input value={expensesAdminSearch} onChange={e=>setExpensesAdminSearch(e.target.value)} placeholder="Hanapin: description, category, branch, o cashier..." style={{ width:"100%",padding:"9px 12px 9px 32px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box" }}/>
+              </div>
+              <div style={{ display:"flex",gap:8,marginBottom:14,flexWrap:"wrap" }}>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Total Entries</div><div style={{ fontWeight:900,fontSize:16,color:C.text }}>{filteredExps.length}</div></div>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Total Amount</div><div style={{ fontWeight:900,fontSize:16,color:C.danger }}>₱{totalAmt.toFixed(2)}</div></div>
+                <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>⚠️ Posibleng Doble</div><div style={{ fontWeight:900,fontSize:16,color:C.warning }}>{filteredExps.filter(isLikelyDupe).length}</div></div>
+              </div>
+              {filteredExps.length===0?<div style={EM}>Walang expenses na tumugma.</div>:
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11.5,background:"white",borderRadius:10,overflow:"hidden",boxShadow:C.shadow }}>
+                    <thead><tr style={{ background:"#1c1917",color:"white" }}>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Date/Time</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Branch</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Category</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Description</th>
+                      <th style={{ padding:"8px 10px",textAlign:"left" }}>Added by</th>
+                      <th style={{ padding:"8px 10px",textAlign:"right" }}>Amount</th>
+                      {ROLE_LEVEL[currentUser?.role||"cashier"]>=3&&<th style={{ padding:"8px 10px",textAlign:"center" }}>Action</th>}
+                    </tr></thead>
+                    <tbody>
+                      {filteredExps.map((e,i)=>{ const rowKey=`${e.id||i}_${e.date}`; const editing = editExpenseId===rowKey; return (
+                        <tr key={rowKey} style={{ borderBottom:`1px solid ${C.border}`,background:isLikelyDupe(e)?C.dangerBg:"white" }}>
+                          <td style={{ padding:"7px 10px",whiteSpace:"nowrap" }}>{e.date}<br/><span style={{ color:C.text3,fontSize:10 }}>{e.time}</span></td>
+                          <td style={{ padding:"7px 10px" }}>{e.branch}</td>
+                          <td style={{ padding:"7px 10px" }}>{editing ? (
+                            <select value={editExpenseVals.category ?? e.category} onChange={ev=>setEditExpenseVals(p=>({...p,category:ev.target.value}))} style={{ padding:"4px 6px",fontSize:11,borderRadius:6,border:`1.5px solid ${C.info}` }}>
+                              <option>Cost of Products/Ingredients</option><option>Shipping Fee</option><option>Office Supplies</option><option>Miscellaneous</option>
+                            </select>
+                          ) : e.category}</td>
+                          <td style={{ padding:"7px 10px",minWidth:160 }}>{editing ? (
+                            <input value={editExpenseVals.desc ?? e.desc} onChange={ev=>setEditExpenseVals(p=>({...p,desc:ev.target.value}))} style={{ width:"100%",padding:"4px 6px",fontSize:11,borderRadius:6,border:`1.5px solid ${C.info}`,boxSizing:"border-box" }}/>
+                          ) : (<>{e.desc} {isLikelyDupe(e)&&<span style={{ fontSize:9,color:C.danger,background:"white",padding:"1px 6px",borderRadius:10,fontWeight:700,marginLeft:4 }}>⚠️ posibleng doble</span>}</>)}</td>
+                          <td style={{ padding:"7px 10px" }}>{e.cashier}</td>
+                          <td style={{ padding:"7px 10px",textAlign:"right",fontWeight:700,color:C.danger }}>{editing ? (
+                            <input type="number" value={editExpenseVals.amount ?? e.amount} onChange={ev=>setEditExpenseVals(p=>({...p,amount:ev.target.value}))} style={{ width:80,padding:"4px 6px",fontSize:11,borderRadius:6,border:`1.5px solid ${C.info}`,textAlign:"right" }}/>
+                          ) : `-₱${parseFloat(e.amount).toFixed(2)}`}</td>
+                          {ROLE_LEVEL[currentUser?.role||"cashier"]>=3&&(
+                            <td style={{ padding:"7px 10px",textAlign:"center" }}>
+                              {editing ? (
+                                <div style={{ display:"flex",gap:4,justifyContent:"center" }}>
+                                  <button onClick={()=>saveExpenseEdit(e)} style={{ padding:"3px 9px",background:C.success,border:"none",borderRadius:5,color:"white",fontWeight:700,fontSize:10,cursor:"pointer" }}>✓ Save</button>
+                                  <button onClick={()=>{setEditExpenseId(null);setEditExpenseVals({});}} style={{ padding:"3px 8px",background:"white",border:`1px solid ${C.border}`,borderRadius:5,fontSize:10,cursor:"pointer" }}>✕</button>
+                                </div>
+                              ) : (
+                                <div style={{ display:"flex",gap:6,justifyContent:"center" }}>
+                                  <button onClick={()=>{setEditExpenseId(rowKey);setEditExpenseVals({});}} title="Edit" style={{ border:"none",background:"transparent",cursor:"pointer",fontSize:13 }}>✏️</button>
+                                  <button onClick={()=>{ if(window.confirm(`Tanggalin ang expense na "${e.desc}" (₱${e.amount})?`)) deleteExpenseEntry(e); }} title="Delete" style={{ border:"none",background:"transparent",cursor:"pointer",fontSize:13 }}>🗑️</button>
+                                </div>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       );})}
                     </tbody>
