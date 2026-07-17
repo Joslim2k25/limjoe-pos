@@ -1086,6 +1086,8 @@ export default function App() {
   const [expensesAdminSearch, setExpensesAdminSearch] = useState("");
   const [editExpenseId, setEditExpenseId] = useState(null);
   const [editExpenseVals, setEditExpenseVals] = useState({});
+  const [expensesAdminRows, setExpensesAdminRows] = useState([]);
+  const [expensesAdminLoading, setExpensesAdminLoading] = useState(false);
   const [reportDate, setReportDate] = useState(todayStr());
   const [dtrWeekStart, setDtrWeekStart] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-d.getDay()); return d.toISOString().slice(0,10); });
   const [wideLayout, setWideLayout] = useState(typeof window!=="undefined" && window.innerWidth >= 880);
@@ -1137,6 +1139,33 @@ export default function App() {
     const interval = setInterval(()=>{ loadFromSupabase(); }, 30000);
     return ()=>clearInterval(interval);
   },[env]);
+
+  // Admin Expenses tab: always fetch fresh directly from Supabase (not the locally-cached
+  // `expenses` state, which can lag behind other cashier sessions/devices) — this was the
+  // cause of the Expenses tab and Monthly Report's expense drill-down showing different data
+  // for the same branch+date.
+  const loadExpensesAdmin = async () => {
+    setExpensesAdminLoading(true);
+    const branchFilter = selectedBranch!=="all" ? `&branch_id=eq.${selectedBranch}` : "";
+    const data = await sb(`expenses?select=*,branches(name)&expense_date=gte.${expensesAdminFrom}&expense_date=lte.${expensesAdminTo}${branchFilter}&order=expense_date.desc,expense_time.desc`);
+    const normalized = Array.isArray(data) ? data.map(e=>({
+      id: e.id,
+      desc: e.description,
+      category: e.category || "Miscellaneous",
+      amount: parseFloat(e.amount),
+      time: e.expense_time?.slice(0,8) || "",
+      date: e.expense_date,
+      branch: e.branches?.name || BRANCHES.find(b=>b.id===e.branch_id)?.name || "",
+      branchId: e.branch_id,
+      cashier: e.added_by || "",
+    })) : [];
+    setExpensesAdminRows(normalized);
+    setExpensesAdminLoading(false);
+  };
+  useEffect(()=>{
+    if (adminTab !== "expenses") return;
+    loadExpensesAdmin();
+  },[adminTab, expensesAdminFrom, expensesAdminTo, selectedBranch]);
 
   // ── LOAD LOYALTY MEMBERS (on-demand, when admin opens the tab) ────────────
   const loadLoyaltyMembers = async () => {
@@ -1355,7 +1384,7 @@ export default function App() {
     auditLog('EXPENSE_EDIT', `Expense edited: "${exp.desc}" ₱${exp.amount} → "${newDesc.trim()}" ₱${newAmt}`, currentUser, exp.branchId, exp.branch);
     toast("✅ Na-update ang expense!");
     setEditExpenseId(null); setEditExpenseVals({});
-    await loadFromSupabase();
+    await Promise.all([loadExpensesAdmin(), loadFromSupabase()]);
   }
 
   async function deleteExpenseEntry(exp) {
@@ -1364,7 +1393,7 @@ export default function App() {
     if (lastSbError) { toast("Hindi na-delete: "+lastSbError, "err"); return; }
     auditLog('EXPENSE_DELETE', `Expense deleted: "${exp.desc}" — ₱${exp.amount} (${exp.category}) — ${exp.date}`, currentUser, exp.branchId, exp.branch);
     toast("✅ Natanggal ang expense!");
-    await loadFromSupabase();
+    await Promise.all([loadExpensesAdmin(), loadFromSupabase()]);
   }
 
   const createEmployee = async () => {
@@ -2576,7 +2605,7 @@ export default function App() {
           })()}
 
           {adminTab==="expenses"&&(()=>{
-            const rangeExps = (()=>{ const out=[]; const d=new Date(expensesAdminFrom+"T00:00:00"); const end=new Date(expensesAdminTo+"T00:00:00"); if(end<d) return out; while(d<=end){ getExps(d.toISOString().slice(0,10), bFilter).forEach(e=>out.push({...e, date: e.date || d.toISOString().slice(0,10)})); d.setDate(d.getDate()+1); } return out; })();
+            const rangeExps = expensesAdminRows;
             const filteredExps = rangeExps.filter(e=>{
               if (!expensesAdminSearch.trim()) return true;
               const q = expensesAdminSearch.toLowerCase();
@@ -2597,8 +2626,10 @@ export default function App() {
                   <select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}>
                     <option value="all">🏪 Lahat ng Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
+                  <button onClick={loadExpensesAdmin} disabled={expensesAdminLoading} style={{ padding:"6px 12px",background:"white",border:`1px solid ${C.border}`,borderRadius:7,color:C.info,fontWeight:700,fontSize:11,cursor:expensesAdminLoading?"default":"pointer" }}>{expensesAdminLoading?"⏳ Loading...":"🔄 Refresh"}</button>
                 </div>
               </div>
+              <div style={{ fontSize:10,color:C.text3,marginTop:-8,marginBottom:12 }}>Live mula sa database — palaging updated, hindi naka-depende sa lumang naka-cache na datos.</div>
               <div style={{ position:"relative",marginBottom:14 }}>
                 <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.text3 }}>🔍</span>
                 <input value={expensesAdminSearch} onChange={e=>setExpensesAdminSearch(e.target.value)} placeholder="Hanapin: description, category, branch, o cashier..." style={{ width:"100%",padding:"9px 12px 9px 32px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box" }}/>
@@ -2608,7 +2639,7 @@ export default function App() {
                 <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>Total Amount</div><div style={{ fontWeight:900,fontSize:16,color:C.danger }}>₱{totalAmt.toFixed(2)}</div></div>
                 <div style={{ flex:1,minWidth:100,background:C.card,borderRadius:10,padding:"10px 12px",border:`1px solid ${C.border}` }}><div style={{ fontSize:9,color:C.text3 }}>⚠️ Posibleng Doble</div><div style={{ fontWeight:900,fontSize:16,color:C.warning }}>{filteredExps.filter(isLikelyDupe).length}</div></div>
               </div>
-              {filteredExps.length===0?<div style={EM}>Walang expenses na tumugma.</div>:
+              {expensesAdminLoading?<div style={EM}>Loading...</div>:filteredExps.length===0?<div style={EM}>Walang expenses na tumugma.</div>:
                 <div style={{ overflowX:"auto" }}>
                   <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11.5,background:"white",borderRadius:10,overflow:"hidden",boxShadow:C.shadow }}>
                     <thead><tr style={{ background:"#1c1917",color:"white" }}>
