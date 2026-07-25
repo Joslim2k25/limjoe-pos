@@ -3179,6 +3179,7 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
   const [showHistory, setShowHistory] = useState(false);
 
   const isManager = ROLE_LEVEL[currentUser?.role || "cashier"] >= 2; // manager/admin/owner
+  const isAdminOwner = ROLE_LEVEL[currentUser?.role || "cashier"] >= 3; // owner/admin only — Delivery History access
 
   useEffect(() => { loadData(); }, []);
 
@@ -3267,7 +3268,7 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
         <div style={{ padding:"14px 22px" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
             <div style={{ fontSize:11,color:"#78716c",fontWeight:700 }}>RECENT DELIVERIES — {currentBranch.name}</div>
-            <button onClick={()=>setShowHistory(true)} style={{ border:"none",background:"none",color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>📜 Buong History →</button>
+            {isAdminOwner&&<button onClick={()=>setShowHistory(true)} style={{ border:"none",background:"none",color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>📜 Buong History →</button>}
           </div>
           {loading ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div> :
             recentDeliveries.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang delivery na naka-log dito.</div> :
