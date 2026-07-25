@@ -1210,7 +1210,7 @@ export default function App() {
   const loadFromSupabase = async () => {
     try {
       const [orders, items, exps, dtrRows, emps, cohRows, holRows, bankRows] = await Promise.all([
-        sb("orders?select=*&order=order_date.desc,order_time.desc"),
+        fetchAllOrders(),
         sb("order_items?select=*"),
         sb("expenses?select=*&order=expense_date.desc"),
         sb("dtr?select=*&order=dtr_date.desc,id.asc"),
@@ -1249,6 +1249,22 @@ export default function App() {
         setEmployees(EMPLOYEES_SEED); toast("⚠️ Hindi maka-connect sa cloud — gamit muna local cache","err");
       } catch { setSalesData({}); setDtrData({}); setExpenses({}); setEmployees(EMPLOYEES_SEED); }
     }
+  };
+
+  const fetchAllOrders = async () => {
+    const pageSize = 1000;
+    let allOrders = [];
+    let from = 0;
+    while (true) {
+      const batch = await sb(
+        `orders?select=*&order=order_date.desc,order_time.desc&limit=${pageSize}&offset=${from}`
+      );
+      if (!batch || batch.length === 0) break;
+      allOrders = allOrders.concat(batch);
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+    return allOrders;
   };
 
   const persist = async (key, data) => { try { localStorage.setItem(key, JSON.stringify(data)); } catch {} };
