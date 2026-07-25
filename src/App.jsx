@@ -3629,6 +3629,17 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
   const [renamingId, setRenamingId] = useState(null); // materialId being renamed
   const [renameVal, setRenameVal] = useState("");
   const [deletingId, setDeletingId] = useState(null); // materialId pending delete confirmation
+  const [spoilageDetail, setSpoilageDetail] = useState(null); // { materialName, unit, entries } | null
+  const [spoilageDetailLoading, setSpoilageDetailLoading] = useState(false);
+  const [zoomImg, setZoomImg] = useState(null);
+
+  async function viewSpoilageDetail(r) {
+    setSpoilageDetailLoading(true);
+    setSpoilageDetail({ materialName: r.name, unit: r.unit, entries: [] });
+    const data = await sb(`spoilage?material_id=eq.${r.materialId}&branch_id=eq.${branchId}&created_at=gte.${encodeURIComponent(reportDate+"T00:00:00+08:00")}&created_at=lte.${encodeURIComponent(reportDate+"T23:59:59+08:00")}&order=created_at.desc`);
+    setSpoilageDetail({ materialName: r.name, unit: r.unit, entries: data||[] });
+    setSpoilageDetailLoading(false);
+  }
 
   useEffect(()=>{ loadReport(); setEditMode(false); setEditVals({}); setEditReason(""); }, [branchId, reportDate]);
 
@@ -3965,7 +3976,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                       </td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#16a34a" }}>{r.delivered>0?`+${r.delivered}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#b45309" }}>{r.used>0?`-${r.used}`:"—"}</td>
-                      <td style={{ padding:"8px 10px",textAlign:"right",color:"#dc2626" }}>{r.spoiled>0?`-${r.spoiled}`:"—"}</td>
+                      <td onClick={()=>r.spoiled>0&&viewSpoilageDetail(r)} style={{ padding:"8px 10px",textAlign:"right",color:"#dc2626",cursor:r.spoiled>0?"pointer":"default",textDecoration:r.spoiled>0?"underline":"none" }}>{r.spoiled>0?`-${r.spoiled}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right" }}>
                         {editMode ? (
                           <input type="number" value={editVals[r.stockId] ?? r.ending} onChange={e=>setEditVals(p=>({...p,[r.stockId]:e.target.value}))} style={{ width:70,padding:"4px 6px",fontSize:12,fontWeight:700,borderRadius:6,border:"1.5px solid #2563eb",textAlign:"right" }}/>
@@ -3999,6 +4010,41 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
           }
         </div>
       </div>
+
+      {spoilageDetail&&(
+        <div onClick={()=>setSpoilageDetail(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3600,padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"white",borderRadius:14,width:"min(480px,95vw)",maxHeight:"85vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ padding:"16px 20px",borderBottom:"1px solid #fecaca",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white" }}>
+              <div style={{ fontWeight:900,fontSize:15,color:"#1c1917" }}>🗑️ Spoilage — {spoilageDetail.materialName}</div>
+              <button onClick={()=>setSpoilageDetail(null)} style={{ border:"none",background:"#fef2f2",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:14,color:"#78716c" }}>✕</button>
+            </div>
+            <div style={{ padding:"14px 20px" }}>
+              {spoilageDetailLoading?<div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div>:
+                spoilageDetail.entries.length===0?<div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Walang detalyadong record na nahanap.</div>:
+                spoilageDetail.entries.map(s=>(
+                  <div key={s.id} style={{ display:"flex",gap:10,padding:"10px 0",borderBottom:"1px solid #f1f5f9" }}>
+                    {s.photo_url ? (
+                      <img src={s.photo_url} onClick={()=>setZoomImg(s.photo_url)} alt="spoilage" style={{ width:56,height:56,borderRadius:8,objectFit:"cover",cursor:"pointer",border:"1px solid #e2e8f0",flexShrink:0 }}/>
+                    ) : (
+                      <div style={{ width:56,height:56,borderRadius:8,background:"#f8fafc",border:"1px dashed #e2e8f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#94a3b8",flexShrink:0,textAlign:"center" }}>walang litrato</div>
+                    )}
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:800,fontSize:13,color:"#dc2626" }}>-{s.qty} {spoilageDetail.unit}</div>
+                      <div style={{ fontSize:11,color:"#57534e" }}>{SPOILAGE_REASONS.find(x=>x.key===s.reason)?.label || s.reason}{s.note?` — ${s.note}`:""}</div>
+                      <div style={{ fontSize:10,color:"#94a3b8",marginTop:2 }}>{s.reported_by} · {new Date(s.created_at).toLocaleString("en-PH")}</div>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        </div>
+      )}
+      {zoomImg&&(
+        <div onClick={()=>setZoomImg(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3700,cursor:"pointer",padding:20 }}>
+          <img src={zoomImg} alt="zoom" style={{ maxWidth:"90vw",maxHeight:"90vh",borderRadius:8 }}/>
+        </div>
+      )}
     </div>
   );
 }
