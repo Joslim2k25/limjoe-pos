@@ -3409,8 +3409,20 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
   const [reason, setReason] = useState("spoiled");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [spoilagePhotoUrl, setSpoilagePhotoUrl] = useState(null);
+  const [spoilagePhotoUploading, setSpoilagePhotoUploading] = useState(false);
+  const [zoomImg, setZoomImg] = useState(null);
 
   const isManager = ROLE_LEVEL[currentUser?.role || "cashier"] >= 2;
+
+  const handleSpoilagePhotoCapture = async (file) => {
+    setSpoilagePhotoUploading(true);
+    const url = await uploadToStorage(file, `spoilage/${currentBranch.id}`);
+    setSpoilagePhotoUploading(false);
+    if (!url) { toast(`Hindi na-upload ang litrato: ${lastSbError || "unknown error"}`, "err"); return; }
+    setSpoilagePhotoUrl(url);
+    toast("✅ Nakuha ang litrato!");
+  };
 
   useEffect(() => { loadData(); }, []);
 
@@ -3440,6 +3452,7 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
     if (!selectedMaterial) { toast("Pumili ng material!", "err"); return; }
     const q = parseFloat(qty);
     if (isNaN(q) || q <= 0) { toast("Lagay ng valid na quantity!", "err"); return; }
+    if (!spoilagePhotoUrl) { toast("Kumuha muna ng litrato ng sirang/nasayang na item!", "err"); return; }
     setSubmitting(true);
     const result = await sb("spoilage", "POST", [{
       material_id: selectedMaterial,
@@ -3448,11 +3461,12 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
       reason,
       reported_by: currentUser?.name || "Unknown",
       note: note.trim() || null,
+      photo_url: spoilagePhotoUrl,
     }]);
     setSubmitting(false);
     if (!result) { toast(`Hindi na-save: ${lastSbError || "unknown error"}`, "err"); return; }
     toast(`✅ Spoilage reported: -${q} ${materials.find(m=>m.id===selectedMaterial)?.unit || ""} — nabawas na sa stock`);
-    setSelectedMaterial(""); setQty(""); setNote(""); setReason("spoiled");
+    setSelectedMaterial(""); setQty(""); setNote(""); setReason("spoiled"); setSpoilagePhotoUrl(null);
     loadData();
   }
 
@@ -3489,10 +3503,20 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
             </select>
           </div>
           <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional — detalye)" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",marginBottom:10,boxSizing:"border-box" }}/>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11,color:"#78716c",marginBottom:4,fontWeight:600 }}>Litrato ng sira/nasayang na item *</div>
+            <CameraCaptureButton label="Kumuha ng litrato" photoUrl={spoilagePhotoUrl} uploading={spoilagePhotoUploading} onCapture={handleSpoilagePhotoCapture} accent="#dc2626"/>
+          </div>
           <button onClick={submitSpoilage} disabled={submitting} style={{ width:"100%",padding:"12px",background:submitting?"#f1f5f9":"#dc2626",border:"none",borderRadius:10,color:submitting?"#94a3b8":"white",fontWeight:900,fontSize:14,cursor:submitting?"not-allowed":"pointer" }}>
             {submitting ? "Sinasave..." : "🗑️ I-report ang Spoilage"}
           </button>
         </div>
+
+        {zoomImg&&(
+          <div onClick={()=>setZoomImg(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3600,cursor:"pointer",padding:20 }}>
+            <img src={zoomImg} alt="zoom" style={{ maxWidth:"90vw",maxHeight:"90vh",borderRadius:8 }}/>
+          </div>
+        )}
 
         <div style={{ padding:"14px 22px" }}>
           <div style={{ fontSize:11,color:"#78716c",fontWeight:700,marginBottom:8 }}>RECENT SPOILAGE — {currentBranch.name}</div>
@@ -3500,6 +3524,7 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
             recentSpoilage.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang na-report na spoilage dito.</div> :
             recentSpoilage.map(s=>(
               <div key={s.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid #f1f5f9" }}>
+                {s.photo_url&&<img src={s.photo_url} onClick={()=>setZoomImg(s.photo_url)} alt="spoilage" style={{ width:40,height:40,borderRadius:6,objectFit:"cover",cursor:"pointer",border:"1px solid #e2e8f0",flexShrink:0 }}/>}
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:700,fontSize:13,color:"#1c1917" }}>{s.raw_materials?.name || "?"} <span style={{ color:"#dc2626" }}>-{s.qty} {s.raw_materials?.unit}</span> <span style={{ fontSize:10,color:"#78716c" }}>({SPOILAGE_REASONS.find(r=>r.key===s.reason)?.label || s.reason})</span></div>
                   <div style={{ fontSize:10,color:"#78716c" }}>{s.reported_by} · {new Date(s.created_at).toLocaleString("en-PH")}{s.note?` · ${s.note}`:""}</div>
