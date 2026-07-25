@@ -3171,6 +3171,7 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const isManager = ROLE_LEVEL[currentUser?.role || "cashier"] >= 2; // manager/admin/owner
 
@@ -3232,6 +3233,7 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
   }
 
   return (
+    <>
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{ background:"white",borderRadius:16,width:"min(560px,95vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
         <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #fde68a",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10 }}>
@@ -3258,7 +3260,10 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
         </div>
 
         <div style={{ padding:"14px 22px" }}>
-          <div style={{ fontSize:11,color:"#78716c",fontWeight:700,marginBottom:8 }}>RECENT DELIVERIES — {currentBranch.name}</div>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
+            <div style={{ fontSize:11,color:"#78716c",fontWeight:700 }}>RECENT DELIVERIES — {currentBranch.name}</div>
+            <button onClick={()=>setShowHistory(true)} style={{ border:"none",background:"none",color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>📜 Buong History →</button>
+          </div>
           {loading ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div> :
             recentDeliveries.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang delivery na naka-log dito.</div> :
             recentDeliveries.map(d=>(
@@ -3270,6 +3275,93 @@ function DeliveryModal({ onClose, toast, currentUser, currentBranch }) {
                 {isManager && (
                   <button onClick={()=>deleteDelivery(d.id)} style={{ padding:"5px 10px",background:"#fef2f2",border:"1px solid #dc2626",borderRadius:6,color:"#dc2626",fontWeight:700,fontSize:10,cursor:"pointer" }}>Delete</button>
                 )}
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+    {showHistory && <DeliveryHistoryModal onClose={()=>setShowHistory(false)} currentUser={currentUser} currentBranch={currentBranch}/>}
+    </>
+  );
+}
+
+// ─── DELIVERY HISTORY (date range, all-branches toggle for admin/owner) ──────
+function DeliveryHistoryModal({ onClose, currentUser, currentBranch }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState(todayStr());
+  const [dateTo, setDateTo] = useState(todayStr());
+  const [search, setSearch] = useState("");
+  const [allBranches, setAllBranches] = useState(false);
+  const isAdminOwner = ROLE_LEVEL[currentUser?.role || "cashier"] >= 3;
+
+  useEffect(() => { loadData(); }, [dateFrom, dateTo, allBranches]);
+
+  async function loadData() {
+    setLoading(true);
+    const branchFilter = (!allBranches || !isAdminOwner) ? `&branch_id=eq.${currentBranch.id}` : "";
+    // Paginate past Supabase's 1000-row default cap — a wide date range plus "All Branches"
+    // can easily exceed it.
+    const pageSize = 1000;
+    let all = []; let from = 0;
+    while (true) {
+      const batch = await sb(`deliveries?select=*,raw_materials(name,unit)&created_at=gte.${dateFrom}T00:00:00.000Z&created_at=lte.${dateTo}T23:59:59.999Z${branchFilter}&order=created_at.desc&limit=${pageSize}&offset=${from}`);
+      if (!batch || batch.length === 0) break;
+      all = all.concat(batch);
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+    setRows(all);
+    setLoading(false);
+  }
+
+  const filtered = search.trim()
+    ? rows.filter(d => (d.raw_materials?.name||"").toLowerCase().includes(search.trim().toLowerCase()))
+    : rows;
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2500,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:16,width:"min(680px,95vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",fontFamily:"sans-serif" }}>
+        <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #fde68a",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10 }}>
+          <div>
+            <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>📜 Delivery History</div>
+            <div style={{ fontSize:11,color:"#78716c" }}>📍 {allBranches&&isAdminOwner?"Lahat ng Branches":currentBranch.name}</div>
+          </div>
+          <button onClick={onClose} style={{ border:"none",background:"#fef9e7",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
+        </div>
+
+        <div style={{ padding:"14px 22px",borderBottom:"1px solid #fde68a",display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end" }}>
+          <div>
+            <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Mula</div>
+            <input type="date" value={dateFrom} max={dateTo} onChange={e=>setDateFrom(e.target.value)} style={{ padding:"7px 9px",fontSize:12,borderRadius:8,border:"1.5px solid #e2e8f0" }}/>
+          </div>
+          <div>
+            <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Hanggang</div>
+            <input type="date" value={dateTo} min={dateFrom} max={todayStr()} onChange={e=>setDateTo(e.target.value)} style={{ padding:"7px 9px",fontSize:12,borderRadius:8,border:"1.5px solid #e2e8f0" }}/>
+          </div>
+          <div style={{ flex:1,minWidth:140 }}>
+            <div style={{ fontSize:10,color:"#78716c",marginBottom:3 }}>Hanapin</div>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Material name..." style={{ width:"100%",padding:"7px 9px",fontSize:12,borderRadius:8,border:"1.5px solid #e2e8f0",boxSizing:"border-box" }}/>
+          </div>
+          {isAdminOwner&&(
+            <label style={{ display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#44403c",cursor:"pointer",padding:"7px 0" }}>
+              <input type="checkbox" checked={allBranches} onChange={e=>setAllBranches(e.target.checked)}/> Lahat ng Branches
+            </label>
+          )}
+        </div>
+
+        <div style={{ padding:"10px 22px 4px",fontSize:11,color:"#78716c",fontWeight:700 }}>{filtered.length} delivery record(s)</div>
+
+        <div style={{ padding:"6px 22px 18px" }}>
+          {loading ? <div style={{ textAlign:"center",padding:24,color:"#94a3b8" }}>Loading...</div> :
+            filtered.length===0 ? <div style={{ textAlign:"center",padding:24,color:"#94a3b8",fontSize:12 }}>Walang delivery record sa napiling date range.</div> :
+            filtered.map(d=>(
+              <div key={d.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid #f1f5f9" }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:13,color:"#1c1917" }}>{d.raw_materials?.name || "?"} <span style={{ color:"#16a34a" }}>+{d.qty} {d.raw_materials?.unit}</span></div>
+                  <div style={{ fontSize:10,color:"#78716c" }}>{d.delivered_by} · {new Date(d.created_at).toLocaleString("en-PH")}{allBranches&&isAdminOwner?` · ${BRANCHES.find(b=>b.id===d.branch_id)?.name||""}`:""}{d.note?` · ${d.note}`:""}</div>
+                </div>
               </div>
             ))
           }
