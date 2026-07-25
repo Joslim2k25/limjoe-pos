@@ -2357,6 +2357,11 @@ export default function App() {
                   <div style={{ fontWeight:700,fontSize:14,color:"#16a34a",marginTop:8 }}>Branch Stock — Lahat ng Branches</div>
                   <div style={{ fontSize:11,color:C.text3,marginTop:4 }}>Tingnan ang current stock ng bawat branch, side by side</div>
                 </div>
+                <div onClick={()=>setShowDelivery(true)} style={{ background:"white",borderRadius:12,padding:"18px",border:`2px solid #16a34a`,cursor:"pointer",textAlign:"center" }}>
+                  <div style={{ fontSize:32 }}>🚚</div>
+                  <div style={{ fontWeight:700,fontSize:14,color:"#16a34a",marginTop:8 }}>Deliveries</div>
+                  <div style={{ fontSize:11,color:C.text3,marginTop:4 }}>Mag-log ng bagong delivery, tingnan ang buong history</div>
+                </div>
                 <div onClick={()=>setShowInventorySummary(true)} style={{ background:"white",borderRadius:12,padding:"18px",border:`2px solid #2563eb`,cursor:"pointer",textAlign:"center",gridColumn:"1 / -1" }}>
                   <div style={{ fontSize:32 }}>📋</div>
                   <div style={{ fontWeight:700,fontSize:14,color:"#2563eb",marginTop:8 }}>Inventory Summary Report</div>
