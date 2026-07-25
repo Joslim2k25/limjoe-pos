@@ -143,6 +143,7 @@ const PAYMENT_METHODS = [
   { key: "foodpanda", label: "FoodPanda", emoji: "🐼", color: "#db2777", type: "online" },
   { key: "grabfood", label: "GrabFood", emoji: "🚗", color: "#16a34a", type: "online" },
   { key: "sm", label: "SM Online", emoji: "🏪", color: "#1d4ed8", type: "online" },
+  { key: "pickaroo", label: "Pickaroo", emoji: "🛵", color: "#ea580c", type: "online" },
 ];
 const DEFAULT_CATEGORIES = [
   { key: "JUICE", label: "JUICE", color: "#d97706" },
@@ -1045,7 +1046,7 @@ export default function App() {
   const [cart, setCart] = useState([]);
   const [sizeModal, setSizeModal] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("cash");
-  const [orderType, setOrderType] = useState("instore"); // instore | foodpanda | grabfood — controls pricing only, separate from actual paymentMethod
+  const [orderType, setOrderType] = useState("instore"); // instore | foodpanda | grabfood | sm | pickaroo — controls pricing only, separate from actual paymentMethod
   const [payTab, setPayTab] = useState("payment");
   const [loyaltyPhone, setLoyaltyPhone] = useState("");
   const [loyaltyCustomer, setLoyaltyCustomer] = useState(null);
@@ -2024,7 +2025,7 @@ export default function App() {
 
         <div style={{ background:isOnline?"#fff7ed":"white",borderBottom:`1px solid ${C.border}`,padding:"7px 12px",display:"flex",gap:6,alignItems:"center",flexShrink:0,overflowX:"auto" }}>
           <span style={{ fontSize:9,color:C.text3,fontWeight:700,whiteSpace:"nowrap" }}>ORDER TYPE:</span>
-          {[{key:"instore",label:"🏪 In-Store",color:C.text2},{key:"foodpanda",label:"🐼 FoodPanda",color:"#db2777"},{key:"grabfood",label:"🚗 GrabFood",color:"#16a34a"},{key:"sm",label:"🏪 SM Online",color:"#1d4ed8"}].map(ch=>{
+          {[{key:"instore",label:"🏪 In-Store",color:C.text2},{key:"foodpanda",label:"🐼 FoodPanda",color:"#db2777"},{key:"grabfood",label:"🚗 GrabFood",color:"#16a34a"},{key:"sm",label:"🏪 SM Online",color:"#1d4ed8"},{key:"pickaroo",label:"🛵 Pickaroo",color:"#ea580c"}].map(ch=>{
             const active = orderType===ch.key;
             return (
               <button key={ch.key} onClick={()=>{
