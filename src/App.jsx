@@ -1197,8 +1197,8 @@ export default function App() {
         name: p.name,
         medium: p.price_medium || p.price || null,
         large: p.price_large || p.price || null,
-        onlineMed: p.price_online_medium || (p.price ? p.price*1.2 : null),
-        onlineLge: p.price_online_large || (p.price ? p.price*1.2 : null),
+        onlineMed: p.price_online_medium || p.price_medium || p.price || null,
+        onlineLge: p.price_online_large || p.price_large || null,
       }));
     }
     return [];
