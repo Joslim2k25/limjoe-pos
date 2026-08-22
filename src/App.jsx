@@ -3341,6 +3341,17 @@ function DeliveryHistoryModal({ onClose, currentUser, currentBranch }) {
     ? rows.filter(d => (d.raw_materials?.name||"").toLowerCase().includes(search.trim().toLowerCase()))
     : rows;
 
+  // Per-cashier summary: who's actually logging deliveries, and how often.
+  const byDeliverer = {};
+  filtered.forEach(d => {
+    const who = d.delivered_by || "(Walang naka-log na pangalan)";
+    if (!byDeliverer[who]) byDeliverer[who] = { name: who, count: 0, materials: new Set(), lastLogged: d.created_at };
+    byDeliverer[who].count++;
+    byDeliverer[who].materials.add(d.raw_materials?.name || "?");
+    if (d.created_at > byDeliverer[who].lastLogged) byDeliverer[who].lastLogged = d.created_at;
+  });
+  const delivererSummary = Object.values(byDeliverer).sort((a,b) => b.count - a.count);
+
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2500,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{ background:"white",borderRadius:16,width:"min(680px,95vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",fontFamily:"sans-serif" }}>
@@ -3373,6 +3384,30 @@ function DeliveryHistoryModal({ onClose, currentUser, currentBranch }) {
         </div>
 
         <div style={{ padding:"10px 22px 4px",fontSize:11,color:"#78716c",fontWeight:700 }}>{filtered.length} delivery record(s)</div>
+
+        {!loading && delivererSummary.length > 0 && (
+          <div style={{ padding:"0 22px 14px" }}>
+            <div style={{ fontSize:11,fontWeight:800,color:"#1c1917",marginBottom:6 }}>👤 Sino ang Nag-log ng Delivery</div>
+            <table style={{ width:"100%",borderCollapse:"collapse",fontSize:11 }}>
+              <thead><tr style={{ background:"#f8fafc" }}>
+                <th style={{ textAlign:"left",padding:"6px 8px" }}>Empleyado</th>
+                <th style={{ textAlign:"right",padding:"6px 8px" }}>Bilang ng Log</th>
+                <th style={{ textAlign:"right",padding:"6px 8px" }}>Iba't ibang Materyal</th>
+                <th style={{ textAlign:"left",padding:"6px 8px" }}>Huling Log</th>
+              </tr></thead>
+              <tbody>
+                {delivererSummary.map(c=>(
+                  <tr key={c.name} style={{ borderTop:"1px solid #f1f5f9" }}>
+                    <td style={{ padding:"6px 8px",fontWeight:700 }}>{c.name}</td>
+                    <td style={{ padding:"6px 8px",textAlign:"right" }}>{c.count}</td>
+                    <td style={{ padding:"6px 8px",textAlign:"right" }}>{c.materials.size}</td>
+                    <td style={{ padding:"6px 8px",color:"#78716c",fontSize:10 }}>{new Date(c.lastLogged).toLocaleString("en-PH")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div style={{ padding:"6px 22px 18px" }}>
           {loading ? <div style={{ textAlign:"center",padding:24,color:"#94a3b8" }}>Loading...</div> :
