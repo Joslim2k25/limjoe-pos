@@ -1030,6 +1030,7 @@ export default function App() {
   function openInventory(filter="all") { setInventoryInitialFilter(filter); setShowInventory(true); }
   const [showDelivery, setShowDelivery] = useState(false);
   const [showSpoilage, setShowSpoilage] = useState(false);
+  const [showBorrowed, setShowBorrowed] = useState(false);
   const [showBranchStock, setShowBranchStock] = useState(false);
   const [showInventorySummary, setShowInventorySummary] = useState(false);
 
@@ -1764,6 +1765,7 @@ export default function App() {
       {showInventory&&<InventoryModal onClose={()=>setShowInventory(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} initialFilter={inventoryInitialFilter}/>}
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showSpoilage&&<SpoilageModal onClose={()=>setShowSpoilage(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
+      {showBorrowed&&<BorrowedModal onClose={()=>setShowBorrowed(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"} branchId={env==="admin"?(bFilter||currentBranch.id):currentBranch.id}/>}
       {showTxnDrill&&<TransactionDrillModal date={showTxnDrill.date} type={showTxnDrill.type} filterKey={showTxnDrill.filterKey} label={showTxnDrill.label} branchId={bFilter} onClose={()=>setShowTxnDrill(null)}/>}
@@ -1875,6 +1877,9 @@ export default function App() {
 </button>
           <button onClick={()=>setShowSpoilage(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:"2px solid #dc2626",borderRadius:12,color:"#dc2626",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>🗑️</span><span>Report Spoilage</span>
+          </button>
+          <button onClick={()=>setShowBorrowed(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:"2px solid #ea580c",borderRadius:12,color:"#ea580c",fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+            <span style={{ fontSize:20 }}>🤝</span><span>Report Borrowed</span>
           </button>
           {canAdmin&&<button onClick={()=>setShowBulkUpload(true)} style={{ flex:"1 1 30%",minWidth:100,padding:"12px",background:"white",border:`2px solid ${C.accent}`,borderRadius:12,color:C.accent,fontWeight:700,fontSize:12,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
             <span style={{ fontSize:20 }}>📤</span><span>Bulk Upload</span><span style={{ fontSize:9,opacity:0.7 }}>Excel</span>
@@ -3576,6 +3581,147 @@ function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
   );
 }
 
+// ─── BORROWED ITEMS TRACKING (cashier can add, admin/owner can delete) ─────
+function BorrowedModal({ onClose, toast, currentUser, currentBranch }) {
+  const [materials, setMaterials] = useState([]);
+  const [recentBorrowed, setRecentBorrowed] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedMaterial, setSelectedMaterial] = useState("");
+  const [qty, setQty] = useState("");
+  const [borrower, setBorrower] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [borrowedPhotoUrl, setBorrowedPhotoUrl] = useState(null);
+  const [borrowedPhotoUploading, setBorrowedPhotoUploading] = useState(false);
+  const [zoomImg, setZoomImg] = useState(null);
+
+  const isManager = ROLE_LEVEL[currentUser?.role || "cashier"] >= 2;
+
+  const handleBorrowedPhotoCapture = async (file) => {
+    setBorrowedPhotoUploading(true);
+    const url = await uploadToStorage(file, `borrowed/${currentBranch.id}`);
+    setBorrowedPhotoUploading(false);
+    if (!url) { toast(`Hindi na-upload ang litrato: ${lastSbError || "unknown error"}`, "err"); return; }
+    setBorrowedPhotoUrl(url);
+    toast("✅ Nakuha ang litrato!");
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  async function loadData() {
+    setLoading(true);
+    const [mats, borrows, stockRows] = await Promise.all([
+      sb("raw_materials?select=id,name,unit&order=name.asc"),
+      sb(`borrowed_items?branch_id=eq.${currentBranch.id}&order=created_at.desc&limit=20&select=*,raw_materials(name,unit)`),
+      sb(`${BRANCH_STOCK_TABLE[currentBranch.id]}?select=material_id`),
+    ]);
+    if (mats) {
+      const trackedIds = new Set((stockRows||[]).map(r=>r.material_id));
+      const byName = new Map();
+      for (const m of mats) {
+        const key = m.name.trim().toLowerCase();
+        const existing = byName.get(key);
+        if (!existing) { byName.set(key, m); continue; }
+        if (trackedIds.has(m.id) && !trackedIds.has(existing.id)) byName.set(key, m);
+      }
+      setMaterials([...byName.values()].sort((a,b)=>a.name.localeCompare(b.name)));
+    }
+    if (borrows) setRecentBorrowed(borrows);
+    setLoading(false);
+  }
+
+  async function submitBorrowed() {
+    if (!selectedMaterial) { toast("Pumili ng material!", "err"); return; }
+    const q = parseFloat(qty);
+    if (isNaN(q) || q <= 0) { toast("Lagay ng valid na quantity!", "err"); return; }
+    if (!borrower.trim()) { toast("Ilagay kung sino/anong branch ang humiram!", "err"); return; }
+    if (!borrowedPhotoUrl) { toast("Kumuha muna ng litrato ng hiniram na item!", "err"); return; }
+    setSubmitting(true);
+    const result = await sb("borrowed_items", "POST", [{
+      material_id: selectedMaterial,
+      qty: q,
+      branch_id: currentBranch.id,
+      borrower: borrower.trim(),
+      reported_by: currentUser?.name || "Unknown",
+      note: note.trim() || null,
+      photo_url: borrowedPhotoUrl,
+    }]);
+    setSubmitting(false);
+    if (!result) { toast(`Hindi na-save: ${lastSbError || "unknown error"}`, "err"); return; }
+    toast(`✅ Borrowed logged: -${q} ${materials.find(m=>m.id===selectedMaterial)?.unit || ""} — nabawas na sa stock`);
+    setSelectedMaterial(""); setQty(""); setBorrower(""); setNote(""); setBorrowedPhotoUrl(null);
+    loadData();
+  }
+
+  async function deleteBorrowed(id) {
+    if (!isManager) { toast("Manager/Admin lang ang pwedeng mag-delete!", "err"); return; }
+    if (!window.confirm("Delete this borrowed record? Hindi na ito ire-reverse sa stock.")) return;
+    const res = await sb(`borrowed_items?id=eq.${id}`, "DELETE");
+    if (lastSbError) { toast("Hindi na-delete: " + lastSbError, "err"); return; }
+    toast("Borrowed record deleted (stock hindi na-babalik).");
+    loadData();
+  }
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16 }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{ background:"white",borderRadius:16,width:"min(560px,95vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",fontFamily:"sans-serif" }}>
+        <div style={{ padding:"18px 22px 12px",borderBottom:"1px solid #fed7aa",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10 }}>
+          <div>
+            <div style={{ fontWeight:900,fontSize:18,color:"#1c1917" }}>🤝 Report Borrowed Item</div>
+            <div style={{ fontSize:11,color:"#78716c" }}>📍 {currentBranch.name}</div>
+          </div>
+          <button onClick={onClose} style={{ border:"none",background:"#fff7ed",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,color:"#78716c" }}>✕</button>
+        </div>
+
+        <div style={{ padding:"16px 22px",borderBottom:"1px solid #fed7aa" }}>
+          <div style={{ fontSize:11,color:"#78716c",fontWeight:700,marginBottom:8 }}>I-REPORT ANG HINIRAM NA ITEM</div>
+          <select value={selectedMaterial} onChange={e=>setSelectedMaterial(e.target.value)} style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",marginBottom:8,boxSizing:"border-box" }}>
+            <option value="">-- Pumili ng material --</option>
+            {materials.map(m=><option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+          </select>
+          <div style={{ display:"flex",gap:8,marginBottom:8 }}>
+            <input type="number" min="0" step="0.01" value={qty} onChange={e=>setQty(e.target.value)} placeholder="Dami na hiniram" style={{ flex:1,padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",boxSizing:"border-box" }}/>
+            <input value={borrower} onChange={e=>setBorrower(e.target.value)} placeholder="Sino/Aling branch humiram *" style={{ flex:1,padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",boxSizing:"border-box" }}/>
+          </div>
+          <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Note (optional — detalye)" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",marginBottom:10,boxSizing:"border-box" }}/>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11,color:"#78716c",marginBottom:4,fontWeight:600 }}>Litrato ng hiniram na item *</div>
+            <CameraCaptureButton label="Kumuha ng litrato" photoUrl={borrowedPhotoUrl} uploading={borrowedPhotoUploading} onCapture={handleBorrowedPhotoCapture} accent="#ea580c"/>
+          </div>
+          <button onClick={submitBorrowed} disabled={submitting} style={{ width:"100%",padding:"12px",background:submitting?"#f1f5f9":"#ea580c",border:"none",borderRadius:10,color:submitting?"#94a3b8":"white",fontWeight:900,fontSize:14,cursor:submitting?"not-allowed":"pointer" }}>
+            {submitting ? "Sinasave..." : "🤝 I-report ang Borrowed"}
+          </button>
+        </div>
+
+        {zoomImg&&(
+          <div onClick={()=>setZoomImg(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3600,cursor:"pointer",padding:20 }}>
+            <img src={zoomImg} alt="zoom" style={{ maxWidth:"90vw",maxHeight:"90vh",borderRadius:8 }}/>
+          </div>
+        )}
+
+        <div style={{ padding:"14px 22px" }}>
+          <div style={{ fontSize:11,color:"#78716c",fontWeight:700,marginBottom:8 }}>RECENT BORROWED — {currentBranch.name}</div>
+          {loading ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div> :
+            recentBorrowed.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang na-report na borrowed dito.</div> :
+            recentBorrowed.map(s=>(
+              <div key={s.id} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid #f1f5f9" }}>
+                {s.photo_url&&<img src={s.photo_url} onClick={()=>setZoomImg(s.photo_url)} alt="borrowed" style={{ width:40,height:40,borderRadius:6,objectFit:"cover",cursor:"pointer",border:"1px solid #e2e8f0",flexShrink:0 }}/>}
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:13,color:"#1c1917" }}>{s.raw_materials?.name || "?"} <span style={{ color:"#ea580c" }}>-{s.qty} {s.raw_materials?.unit}</span> <span style={{ fontSize:10,color:"#78716c" }}>({s.borrower})</span></div>
+                  <div style={{ fontSize:10,color:"#78716c" }}>{s.reported_by} · {new Date(s.created_at).toLocaleString("en-PH")}{s.note?` · ${s.note}`:""}</div>
+                </div>
+                {isManager && (
+                  <button onClick={()=>deleteBorrowed(s.id)} style={{ padding:"5px 10px",background:"#fff7ed",border:"1px solid #ea580c",borderRadius:6,color:"#ea580c",fontWeight:700,fontSize:10,cursor:"pointer" }}>Delete</button>
+                )}
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── PER-BRANCH STOCK VIEWER ──────────────────────────────────────────────────
 function BranchStockModal({ onClose, toast, currentBranch, userRole }) {
   const [rows, setRows] = useState([]);
@@ -3704,28 +3850,29 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     const agg = {};
     (logRows||[]).forEach(l=>{
       const id = l.material_id;
-      if (!agg[id]) agg[id] = { used:0, delivered:0, spoiled:0 };
+      if (!agg[id]) agg[id] = { used:0, delivered:0, spoiled:0, borrowed:0 };
       const note = l.note || "";
       const chg = parseFloat(l.change_qty) || 0;
       if (/auto-deduct/i.test(note)) agg[id].used += Math.abs(chg);
       else if (/delivery received/i.test(note)) agg[id].delivered += chg;
       else if (/spoilage\/waste/i.test(note)) agg[id].spoiled += Math.abs(chg);
+      else if (/borrowed/i.test(note)) agg[id].borrowed += Math.abs(chg);
     });
     // Real captured snapshot (taken automatically at each material's first change that day) —
     // not reverse-calculated, so it stays correct even if a log entry is ever missed.
     const snapMap = {};
     (snapshotRows||[]).forEach(s=>{ snapMap[s.material_id] = parseFloat(s.beginning_qty); });
     const built = (stockRows||[]).map(r=>{
-      const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0 };
+      const a = agg[r.material_id] || { used:0, delivered:0, spoiled:0, borrowed:0 };
       const cost = r.raw_materials?.cost_per_unit || 0;
       const liveStock = parseFloat(r.stock_qty);
       // Fall back to reverse-calculation only if no snapshot exists yet (shouldn't happen after
       // the backfill, but covers a brand-new material added mid-day with no prior snapshot row).
-      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (liveStock - a.delivered + a.used + a.spoiled);
-      const expectedEnding = beginning + a.delivered - a.used - a.spoiled;
+      const beginning = snapMap[r.material_id] !== undefined ? snapMap[r.material_id] : (liveStock - a.delivered + a.used + a.spoiled + a.borrowed);
+      const expectedEnding = beginning + a.delivered - a.used - a.spoiled - a.borrowed;
       // For today, Ending = the live/current stock count (the true physical number right now).
       // For a past date, there's no "live" stock for that day anymore — the only honest
-      // Ending is the reconciled Beginning + Delivered - Used - Spoiled for that date.
+      // Ending is the reconciled Beginning + Delivered - Used - Spoiled - Borrowed for that date.
       const ending = isToday ? liveStock : expectedEnding;
       const unreconciled = Math.abs(expectedEnding - ending) > 0.01;
       return {
@@ -3734,7 +3881,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
         name: r.raw_materials?.name || "?",
         unit: r.raw_materials?.unit || "",
         category: r.raw_materials?.category || "ingredient",
-        beginning, delivered: a.delivered, used: a.used, spoiled: a.spoiled,
+        beginning, delivered: a.delivered, used: a.used, spoiled: a.spoiled, borrowed: a.borrowed,
         ending, unreconciled,
         reorderPt: parseFloat(r.reorder_pt),
         spoilCost: a.spoiled*cost,
@@ -3984,6 +4131,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                     <th style={{ padding:"8px 10px",textAlign:"right",color:"#86efac" }}>Delivered</th>
                     <th style={{ padding:"8px 10px",textAlign:"right",color:"#fde68a" }}>Used</th>
                     <th style={{ padding:"8px 10px",textAlign:"right",color:"#fca5a5" }}>Spoilage</th>
+                    <th style={{ padding:"8px 10px",textAlign:"right",color:"#fdba74" }}>Borrowed</th>
                     <th style={{ padding:"8px 10px",textAlign:"right" }}>Ending</th>
                     <th style={{ padding:"8px 10px",textAlign:"right" }}>Reorder At</th>
                     <th style={{ padding:"8px 10px",textAlign:"center" }}>Status</th>
@@ -4012,6 +4160,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#16a34a" }}>{r.delivered>0?`+${r.delivered}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right",color:"#b45309" }}>{r.used>0?`-${r.used}`:"—"}</td>
                       <td onClick={()=>r.spoiled>0&&viewSpoilageDetail(r)} style={{ padding:"8px 10px",textAlign:"right",color:"#dc2626",cursor:r.spoiled>0?"pointer":"default",textDecoration:r.spoiled>0?"underline":"none" }}>{r.spoiled>0?`-${r.spoiled}`:"—"}</td>
+                      <td style={{ padding:"8px 10px",textAlign:"right",color:"#ea580c" }}>{r.borrowed>0?`-${r.borrowed}`:"—"}</td>
                       <td style={{ padding:"8px 10px",textAlign:"right" }}>
                         {editMode ? (
                           <input type="number" value={editVals[r.stockId] ?? r.ending} onChange={e=>setEditVals(p=>({...p,[r.stockId]:e.target.value}))} style={{ width:70,padding:"4px 6px",fontSize:12,fontWeight:700,borderRadius:6,border:"1.5px solid #2563eb",textAlign:"right" }}/>
