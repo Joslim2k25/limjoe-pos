@@ -1138,7 +1138,7 @@ export default function App() {
   // keep seeing stale "Wala pang sales" even though real orders exist. Keep it live.
   useEffect(()=>{
     if (env !== "cashier") return;
-    const interval = setInterval(()=>{ loadFromSupabase(); }, 30000);
+    const interval = setInterval(()=>{ loadFromSupabase(); loadProducts(); }, 30000);
     return ()=>clearInterval(interval);
   },[env]);
 
