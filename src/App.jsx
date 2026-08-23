@@ -3838,11 +3838,18 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
     const isToday = reportDate === todayStr();
     const startISO = `${reportDate}T00:00:00+08:00`;
     const endISO = `${reportDate}T23:59:59+08:00`;
-    const [stockRows, logRows, snapshotRows] = await Promise.all([
+    const [stockRows, logRows, snapshotRows, lastDeliveryRows] = await Promise.all([
       sb(`${BRANCH_STOCK_TABLE[branchId]}?select=id,material_id,stock_qty,reorder_pt,raw_materials(name,unit,category,cost_per_unit)`),
       sb(`inventory_logs?select=material_id,change_qty,note&note=ilike.${encodeURIComponent(`Branch ${branchId} -*`)}&created_at=gte.${encodeURIComponent(startISO)}&created_at=lte.${encodeURIComponent(endISO)}`),
       sb(`daily_stock_snapshot?select=material_id,beginning_qty&branch_id=eq.${branchId}&snapshot_date=eq.${reportDate}`),
+      // Most recent delivery ever logged per material (not date-scoped) — used to flag
+      // materials that haven't had a delivery logged in a while, even if they're still
+      // being sold daily (a strong sign deliveries are happening in real life but not
+      // being entered into the system).
+      sb(`inventory_logs?select=material_id,created_at&note=ilike.${encodeURIComponent(`Branch ${branchId} - Delivery received%`)}&order=created_at.desc`),
     ]);
+    const lastDeliveryMap = {};
+    (lastDeliveryRows||[]).forEach(l=>{ if(!lastDeliveryMap[l.material_id]) lastDeliveryMap[l.material_id]=l.created_at; });
     // Bucket that day's ledger entries per material: Used (sales), Delivered, Spoilage.
     // Manual edits / initial-stock entries are intentionally NOT bucketed here — Used and
     // Spoilage are the only two things that subtract from stock. Anything else that changed
@@ -3875,6 +3882,8 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
       // Ending is the reconciled Beginning + Delivered - Used - Spoiled - Borrowed for that date.
       const ending = isToday ? liveStock : expectedEnding;
       const unreconciled = Math.abs(expectedEnding - ending) > 0.01;
+      const lastDeliveryAt = lastDeliveryMap[r.material_id] || null;
+      const daysSinceDelivery = lastDeliveryAt ? Math.floor((Date.now() - new Date(lastDeliveryAt).getTime()) / 86400000) : null;
       return {
         stockId: r.id,
         materialId: r.material_id,
@@ -3886,6 +3895,7 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
         reorderPt: parseFloat(r.reorder_pt),
         spoilCost: a.spoiled*cost,
         isLow: ending <= parseFloat(r.reorder_pt),
+        lastDeliveryAt, daysSinceDelivery,
       };
     }).sort((a,b)=>a.name.localeCompare(b.name));
     setRows(built);
@@ -4113,6 +4123,20 @@ function InventorySummaryModal({ onClose, toast, currentUser, currentBranch, use
               <div style={{ fontWeight:900,fontSize:18,color:"#dc2626" }}>₱{totalSpoilCost.toFixed(0)}</div>
             </div>
           </div>
+
+          {(()=>{
+            const staleDeliveries = rows.filter(r => (r.daysSinceDelivery===null || r.daysSinceDelivery>=7) && r.used>0);
+            if (!staleDeliveries.length) return null;
+            return (
+              <div style={{ background:"#fff7ed",border:"1.5px solid #ea580c",borderRadius:10,padding:"10px 14px",marginBottom:14 }}>
+                <div style={{ fontSize:12,fontWeight:800,color:"#9a3412",marginBottom:4 }}>⚠️ Matagal nang walang na-log na delivery (pero patuloy na ginagamit)</div>
+                <div style={{ fontSize:11,color:"#9a3412" }}>
+                  {staleDeliveries.map(r=>`${r.name} (${r.daysSinceDelivery===null?"wala pang delivery na naka-log":`${r.daysSinceDelivery} araw na`})`).join(", ")}
+                </div>
+                <div style={{ fontSize:10,color:"#c2410c",marginTop:4 }}>Kung totoong tumatanggap ng delivery pero hindi ito na-i-log, posibleng maging negative ang tracked stock kahit sapat naman ang totoong dami.</div>
+              </div>
+            );
+          })()}
 
           <div style={{ display:"flex",gap:6,marginBottom:12,flexWrap:"wrap" }}>
             {[{key:"all",label:"All"},{key:"low",label:`⚠️ Low Stock (${lowCount})`},{key:"spoiled",label:`🗑️ May Spoilage (${totalSpoiledItems})`}].map(f=>(
