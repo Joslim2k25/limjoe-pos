@@ -111,12 +111,30 @@ const BRANCHES = [
   { id: 1, name: "Branch 1" }, { id: 2, name: "Branch 2" },
   { id: 3, name: "Branch 3" }, { id: 4, name: "Branch 4" },
 ];
+// EMERGENCY SAFETY NET: this used to be a 5-person placeholder list, which meant ANY time the
+// app fell back to it (network hiccup, whatever), every real employee's correct PIN was
+// rejected as "not recognized". Now mirrors every currently-ACTIVE real employee, so even in
+// worst-case fallback mode, the correct people can still log in. This is a snapshot as of
+// 2026-08-23 — if employees are added/changed in the Admin Portal later, this list will drift
+// out of date (it's a safety net for outages, not a replacement for the live DB fetch).
 const EMPLOYEES_SEED = [
-  { id: 1, name: "Owner", pin: "0000", role: "owner", emoji: "👑", branchId: null },
-  { id: 2, name: "Admin", pin: "1111", role: "admin", emoji: "🛡️", branchId: null },
-  { id: 3, name: "Manager 1", pin: "2222", role: "manager", emoji: "👔", branchId: 1 },
-  { id: 4, name: "Cashier 1", pin: "3333", role: "cashier", emoji: "👩‍💼", branchId: 1 },
-  { id: 5, name: "Cashier 2", pin: "4444", role: "cashier", emoji: "👨‍💼", branchId: 1 },
+  { id: 31, name: "Admin", pin: "1111", role: "admin", emoji: "🛡️", branchId: null },
+  { id: 15, name: "Aimee Satiada", pin: "0234", role: "admin", emoji: "👤", branchId: null },
+  { id: 2, name: "Joseph Lim", pin: "0925", role: "owner", emoji: "👑", branchId: null },
+  { id: 30, name: "Owner", pin: "0000", role: "owner", emoji: "👑", branchId: null },
+  { id: 27, name: "sandara", pin: "0965", role: "admin", emoji: "👤", branchId: null },
+  { id: 43, name: "Aichang", pin: "2345", role: "cashier", emoji: "👤", branchId: 1 },
+  { id: 33, name: "Cashier 1", pin: "3333", role: "cashier", emoji: "👩‍💼", branchId: 1 },
+  { id: 34, name: "Cashier 2", pin: "4444", role: "cashier", emoji: "👨‍💼", branchId: 1 },
+  { id: 6, name: "Jonalyn Cuevas", pin: "0622", role: "cashier", emoji: "👤", branchId: 1 },
+  { id: 32, name: "Manager 1", pin: "2222", role: "manager", emoji: "👔", branchId: 1 },
+  { id: 28, name: "sodesu", pin: "1212", role: "cashier", emoji: "👤", branchId: 1 },
+  { id: 36, name: "Ai", pin: "1234", role: "cashier", emoji: "👤", branchId: 2 },
+  { id: 25, name: "Ma. Theresa Satiada", pin: "0225", role: "cashier", emoji: "👤", branchId: 2 },
+  { id: 14, name: "Jennifer Flores", pin: "1224", role: "cashier", emoji: "👤", branchId: 3 },
+  { id: 12, name: "Marina Galvan", pin: "0952", role: "cashier", emoji: "👤", branchId: 3 },
+  { id: 35, name: "kim", pin: "8888", role: "cashier", emoji: "👤", branchId: 4 },
+  { id: 17, name: "May N. Cortez", pin: "8463", role: "cashier", emoji: "👤", branchId: 4 },
 ];
 const ROLE_LEVEL = { owner: 4, admin: 3, manager: 2, cashier: 1 };
 const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cashier: "#16a34a" };
