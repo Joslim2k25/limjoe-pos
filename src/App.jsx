@@ -1004,7 +1004,14 @@ export default function App() {
   const [env, setEnv] = useState("home");
   const [currentUser, setCurrentUser] = useState(null);
   const [currentBranch, setCurrentBranch] = useState(BRANCHES[0]);
-  const [employees, setEmployees] = useState(EMPLOYEES_SEED);
+  const [employees, setEmployees] = useState(() => {
+    try {
+      const c = localStorage.getItem("limjoe_employees_cache_v1");
+      const parsed = c ? JSON.parse(c) : null;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+    return EMPLOYEES_SEED;
+  });
   const [salesData, setSalesData] = useState({});
   const [dtrData, setDtrData] = useState({});
   const [expenses, setExpenses] = useState({});
@@ -1227,22 +1234,37 @@ export default function App() {
       // added since) — real staff with valid PINs would be told "PIN not recognized" with no
       // indication anything was wrong, and the old code even re-inserted the seed employees
       // into the database on every occurrence, creating duplicate Cashier/Manager records.
-      // Now retries a few times before giving up, never re-inserts seed data, and warns
-      // clearly (instead of silently) if it ever does fall back.
+      // Now retries with longer backoff before giving up, never re-inserts seed data, caches
+      // the real list to localStorage whenever it succeeds, and — if it still can't reach the
+      // server after retrying — falls back to that cached REAL list instead of the dangerous
+      // 5-person placeholder, since a slightly-stale real employee list is far safer than one
+      // missing almost everyone.
+      const EMP_CACHE_KEY = "limjoe_employees_cache_v1";
       if (Array.isArray(emps) && emps.length > 0) {
-        setEmployees(emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active));
+        const mapped = emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active);
+        setEmployees(mapped);
+        try { localStorage.setItem(EMP_CACHE_KEY, JSON.stringify(mapped)); } catch {}
       } else {
         let retried = null;
-        for (let attempt = 0; attempt < 3 && !retried; attempt++) {
-          await new Promise(r => setTimeout(r, 800));
+        for (let attempt = 0; attempt < 4 && !retried; attempt++) {
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); // 1.5s, 3s, 4.5s, 6s backoff
           const retry = await sb("employees?select=*&order=id.asc").catch(() => null);
           if (Array.isArray(retry) && retry.length > 0) retried = retry;
         }
         if (retried) {
-          setEmployees(retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active));
+          const mapped = retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active);
+          setEmployees(mapped);
+          try { localStorage.setItem(EMP_CACHE_KEY, JSON.stringify(mapped)); } catch {}
         } else {
-          setEmployees(EMPLOYEES_SEED);
-          toast?.("⚠️ Hindi ma-load ang totoong listahan ng empleyado — gumagamit muna ng paunang setting. I-reload ang page.", "err");
+          let cached = null;
+          try { const c = localStorage.getItem(EMP_CACHE_KEY); cached = c ? JSON.parse(c) : null; } catch {}
+          if (Array.isArray(cached) && cached.length > 0) {
+            setEmployees(cached);
+            toast?.("⚠️ Hindi ma-connect sa server — gumagamit ng huling naka-save na listahan ng empleyado. I-reload paminsan-minsan.", "err");
+          } else {
+            setEmployees(EMPLOYEES_SEED);
+            toast?.("⚠️ Hindi ma-load ang totoong listahan ng empleyado — gumagamit muna ng paunang setting. I-reload ang page.", "err");
+          }
         }
       }
       const ns={};
