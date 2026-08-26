@@ -1163,8 +1163,14 @@ export default function App() {
   // keep seeing stale "Wala pang sales" even though real orders exist. Keep it live.
   useEffect(()=>{
     if (env !== "cashier") return;
-    const interval = setInterval(()=>{ loadFromSupabase(); loadProducts(); }, 30000);
-    return ()=>clearInterval(interval);
+    // Split into two intervals: sales-related data (which genuinely needs to feel live)
+    // stays frequent, but products/categories (which change rarely — an admin editing a
+    // price is not a many-times-per-minute event) now polls far less often. Combining both
+    // into one 30s interval across every device on every branch was adding meaningfully to
+    // total request volume; this cuts it back down while keeping the parts that matter fresh.
+    const salesInterval = setInterval(()=>{ loadFromSupabase(); }, 45000);
+    const productsInterval = setInterval(()=>{ loadProducts(); }, 180000);
+    return ()=>{ clearInterval(salesInterval); clearInterval(productsInterval); };
   },[env]);
 
   // Admin Expenses tab: always fetch fresh directly from Supabase (not the locally-cached
