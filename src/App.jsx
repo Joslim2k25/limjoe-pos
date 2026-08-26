@@ -1222,11 +1222,28 @@ export default function App() {
         sb("bank_deposit_status?select=*"),
       ]);
       if (Array.isArray(holRows)) setHolidays(holRows.map(h=>({ id:h.id, date:h.date, name:h.name, type:h.type })));
+      // FIX (critical): a single transient network hiccup on employees fetch used to silently
+      // fall back to a 5-person hardcoded EMPLOYEES_SEED list (missing every real employee
+      // added since) — real staff with valid PINs would be told "PIN not recognized" with no
+      // indication anything was wrong, and the old code even re-inserted the seed employees
+      // into the database on every occurrence, creating duplicate Cashier/Manager records.
+      // Now retries a few times before giving up, never re-inserts seed data, and warns
+      // clearly (instead of silently) if it ever does fall back.
       if (Array.isArray(emps) && emps.length > 0) {
         setEmployees(emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active));
       } else {
-        setEmployees(EMPLOYEES_SEED);
-        sb("employees","POST",EMPLOYEES_SEED.map(e=>({ name:e.name, pin:e.pin, role:e.role, emoji:e.emoji, branch_id:e.branchId, active:true }))).catch(()=>{});
+        let retried = null;
+        for (let attempt = 0; attempt < 3 && !retried; attempt++) {
+          await new Promise(r => setTimeout(r, 800));
+          const retry = await sb("employees?select=*&order=id.asc").catch(() => null);
+          if (Array.isArray(retry) && retry.length > 0) retried = retry;
+        }
+        if (retried) {
+          setEmployees(retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active));
+        } else {
+          setEmployees(EMPLOYEES_SEED);
+          toast?.("⚠️ Hindi ma-load ang totoong listahan ng empleyado — gumagamit muna ng paunang setting. I-reload ang page.", "err");
+        }
       }
       const ns={};
       if (Array.isArray(orders)) {
