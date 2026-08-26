@@ -2303,7 +2303,7 @@ export default function App() {
       return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
     });
 
-    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"expenses",label:"💸 Expenses"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"audit",label:"📝 Audit Trail"}];
+    const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"expenses",label:"💸 Expenses"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"office",label:"🏢 Office"},{key:"audit",label:"📝 Audit Trail"}];
 
     return (
       <div style={{ background:C.bg,height:"100vh",display:"flex",flexDirection:"column",fontFamily:"sans-serif",overflow:"hidden",color:C.text }}>
@@ -2453,6 +2453,8 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {adminTab==="office"&&<OfficeTab currentUser={currentUser} toast={toast}/>}
 
           {/* ── DASHBOARD ── */}
           {adminTab==="dashboard"&&(
@@ -3503,6 +3505,246 @@ const SPOILAGE_REASONS = [
   { key:"dropped", label:"🫗 Nabuhos/Nahulog" },
   { key:"other", label:"❓ Iba pa" },
 ];
+// ─── OFFICE MANAGEMENT (expenses to suppliers + central stock receiving/distribution) ────
+function OfficeTab({ currentUser, toast }) {
+  const [subTab, setSubTab] = useState("expenses");
+  const [materials, setMaterials] = useState([]);
+  const [officeStock, setOfficeStock] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [receiving, setReceiving] = useState([]);
+  const [distribution, setDistribution] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Expense form
+  const [expSupplier, setExpSupplier] = useState("");
+  const [expDesc, setExpDesc] = useState("");
+  const [expAmount, setExpAmount] = useState("");
+  const [expVat, setExpVat] = useState("");
+  const [expSaving, setExpSaving] = useState(false);
+
+  // Receiving form
+  const [recvMaterial, setRecvMaterial] = useState("");
+  const [recvQty, setRecvQty] = useState("");
+  const [recvSupplier, setRecvSupplier] = useState("");
+  const [recvSaving, setRecvSaving] = useState(false);
+
+  // Distribution form
+  const [distMaterial, setDistMaterial] = useState("");
+  const [distQty, setDistQty] = useState("");
+  const [distBranch, setDistBranch] = useState(BRANCHES[0].id);
+  const [distSaving, setDistSaving] = useState(false);
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  async function loadAll(){
+    setLoading(true);
+    const [mats, stock, exps, recvs, dists] = await Promise.all([
+      sb("raw_materials?select=id,name,unit&order=name.asc"),
+      sb("office_stock?select=*,raw_materials(name,unit)&order=updated_at.desc"),
+      sb("office_expenses?select=*&order=expense_date.desc,created_at.desc&limit=50"),
+      sb("office_receiving?select=*,raw_materials(name,unit)&order=created_at.desc&limit=30"),
+      sb("office_distribution?select=*,raw_materials(name,unit)&order=created_at.desc&limit=30"),
+    ]);
+    if (Array.isArray(mats)) setMaterials(mats);
+    if (Array.isArray(stock)) setOfficeStock(stock);
+    if (Array.isArray(exps)) setExpenses(exps);
+    if (Array.isArray(recvs)) setReceiving(recvs);
+    if (Array.isArray(dists)) setDistribution(dists);
+    setLoading(false);
+  }
+
+  async function saveExpense(){
+    if (!expSupplier.trim()) { toast("Ilagay ang pangalan ng supplier!","err"); return; }
+    const amt=parseFloat(expAmount)||0;
+    if (amt<=0) { toast("Ilagay ang tamang amount!","err"); return; }
+    setExpSaving(true);
+    const result = await sb("office_expenses","POST",[{
+      supplier_name: expSupplier.trim(),
+      description: expDesc.trim()||null,
+      amount: amt,
+      vat_amount: parseFloat(expVat)||0,
+      entered_by: currentUser?.name||"Office",
+    }]);
+    setExpSaving(false);
+    if (!result) { toast(`Hindi na-save: ${lastSbError||"unknown error"}`,"err"); return; }
+    toast("✅ Office expense saved!");
+    setExpSupplier(""); setExpDesc(""); setExpAmount(""); setExpVat("");
+    loadAll();
+  }
+
+  async function saveReceiving(){
+    if (!recvMaterial) { toast("Pumili ng material!","err"); return; }
+    const q=parseFloat(recvQty)||0;
+    if (q<=0) { toast("Ilagay ang tamang dami!","err"); return; }
+    setRecvSaving(true);
+    const result = await sb("office_receiving","POST",[{
+      material_id: recvMaterial, qty: q, supplier_name: recvSupplier.trim()||null, received_by: currentUser?.name||"Office",
+    }]);
+    setRecvSaving(false);
+    if (!result) { toast(`Hindi na-save: ${lastSbError||"unknown error"}`,"err"); return; }
+    toast(`✅ +${q} ${materials.find(m=>m.id===recvMaterial)?.unit||""} sa office stock`);
+    setRecvMaterial(""); setRecvQty(""); setRecvSupplier("");
+    loadAll();
+  }
+
+  async function saveDistribution(){
+    if (!distMaterial) { toast("Pumili ng material!","err"); return; }
+    const q=parseFloat(distQty)||0;
+    if (q<=0) { toast("Ilagay ang tamang dami!","err"); return; }
+    const current = officeStock.find(s=>s.material_id===distMaterial)?.stock_qty || 0;
+    if (q>current) { if(!window.confirm(`Babala: mas malaki ang gustong ipadala (${q}) kaysa sa kasalukuyang office stock (${current}). Ituloy pa rin?`)) return; }
+    setDistSaving(true);
+    const result = await sb("office_distribution","POST",[{
+      material_id: distMaterial, qty: q, branch_id: distBranch, distributed_by: currentUser?.name||"Office",
+    }]);
+    setDistSaving(false);
+    if (!result) { toast(`Hindi na-save: ${lastSbError||"unknown error"}`,"err"); return; }
+    toast(`✅ ${q} ${materials.find(m=>m.id===distMaterial)?.unit||""} ipinadala sa ${BRANCHES.find(b=>b.id===distBranch)?.name}`);
+    setDistMaterial(""); setDistQty("");
+    loadAll();
+  }
+
+  const totalExpAmt = expenses.reduce((s,e)=>s+(e.amount||0),0);
+  const totalExpVat = expenses.reduce((s,e)=>s+(e.vat_amount||0),0);
+
+  const inputStyle={ padding:"9px 11px",fontSize:13,borderRadius:8,border:"1.5px solid #e2e8f0",boxSizing:"border-box" };
+
+  return (
+    <div>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}>
+        <div style={PT}>🏢 Office Management</div>
+        <button onClick={loadAll} style={{ padding:"7px 14px",background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer" }}>🔄 Refresh</button>
+      </div>
+
+      <div style={{ display:"flex",gap:6,marginBottom:16,flexWrap:"wrap" }}>
+        {[{key:"expenses",label:"💸 Expenses (Suppliers)"},{key:"receiving",label:"📥 Stock Receiving"},{key:"distribution",label:"🚚 Distribution to Stores"}].map(t=>(
+          <button key={t.key} onClick={()=>setSubTab(t.key)} style={{ padding:"8px 14px",background:subTab===t.key?"#1c1917":"#fff",color:subTab===t.key?"#fff":"#1c1917",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer" }}>{t.label}</button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign:"center",padding:30,color:"#94a3b8" }}>Loading...</div>}
+
+      {!loading && subTab==="expenses" && (
+        <div>
+          <div style={{ display:"flex",gap:10,marginBottom:14,flexWrap:"wrap" }}>
+            <div style={{ flex:1,minWidth:140,background:"#f0fdf4",borderRadius:10,padding:12,border:"1px solid #bbf7d0" }}>
+              <div style={{ fontSize:20,fontWeight:900,color:"#16a34a" }}>₱{totalExpAmt.toFixed(2)}</div>
+              <div style={{ fontSize:10,color:"#78716c" }}>Total Amount (last 50)</div>
+            </div>
+            <div style={{ flex:1,minWidth:140,background:"#fffbeb",borderRadius:10,padding:12,border:"1px solid #fde68a" }}>
+              <div style={{ fontSize:20,fontWeight:900,color:"#d97706" }}>₱{totalExpVat.toFixed(2)}</div>
+              <div style={{ fontSize:10,color:"#78716c" }}>Total VAT (manual entry)</div>
+            </div>
+          </div>
+
+          <div style={{ background:"white",borderRadius:12,padding:16,marginBottom:16,border:"1.5px solid #e2e8f0" }}>
+            <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>MAG-LOG NG BAGONG EXPENSE</div>
+            <input value={expSupplier} onChange={e=>setExpSupplier(e.target.value)} placeholder="Pangalan ng Supplier *" style={{ ...inputStyle,width:"100%",marginBottom:8 }}/>
+            <input value={expDesc} onChange={e=>setExpDesc(e.target.value)} placeholder="Description (opsyonal)" style={{ ...inputStyle,width:"100%",marginBottom:8 }}/>
+            <div style={{ display:"flex",gap:8,marginBottom:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:4 }}>Amount (₱) *</div>
+                <input type="number" min="0" step="0.01" value={expAmount} onChange={e=>setExpAmount(e.target.value)} placeholder="0.00" style={{ ...inputStyle,width:"100%" }}/>
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:10,color:"#78716c",marginBottom:4 }}>VAT (₱) — ikaw ang maglalagay</div>
+                <input type="number" min="0" step="0.01" value={expVat} onChange={e=>setExpVat(e.target.value)} placeholder="0.00" style={{ ...inputStyle,width:"100%" }}/>
+              </div>
+            </div>
+            <button onClick={saveExpense} disabled={expSaving} style={{ width:"100%",padding:11,background:expSaving?"#f1f5f9":"#16a34a",border:"none",borderRadius:8,color:expSaving?"#94a3b8":"#fff",fontWeight:800,fontSize:13,cursor:expSaving?"not-allowed":"pointer" }}>{expSaving?"Sinasave...":"💾 I-save ang Expense"}</button>
+          </div>
+
+          <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>KASAYSAYAN NG OFFICE EXPENSES</div>
+          {expenses.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang naka-log na expense.</div> :
+            expenses.map(e=>(
+              <div key={e.id} style={{ background:"white",borderRadius:10,padding:"10px 14px",marginBottom:8,border:"1px solid #e2e8f0" }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div style={{ fontWeight:800,fontSize:13 }}>{e.supplier_name}</div>
+                  <div style={{ fontWeight:900,fontSize:14,color:"#16a34a" }}>₱{(e.amount||0).toFixed(2)}</div>
+                </div>
+                <div style={{ fontSize:11,color:"#78716c",marginTop:2 }}>{e.description||"—"}</div>
+                <div style={{ fontSize:10,color:"#94a3b8",marginTop:4,display:"flex",justifyContent:"space-between" }}>
+                  <span>{e.expense_date} · {e.entered_by}</span>
+                  <span style={{ color:"#d97706",fontWeight:700 }}>VAT: ₱{(e.vat_amount||0).toFixed(2)}</span>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      {!loading && subTab==="receiving" && (
+        <div>
+          <div style={{ background:"white",borderRadius:12,padding:16,marginBottom:16,border:"1.5px solid #e2e8f0" }}>
+            <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>STOCK NA DUMATING MULA SA SUPPLIER (nagdadagdag sa office stock)</div>
+            <select value={recvMaterial} onChange={e=>setRecvMaterial(e.target.value)} style={{ ...inputStyle,width:"100%",marginBottom:8,background:"white" }}>
+              <option value="">-- Pumili ng material --</option>
+              {materials.map(m=><option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+            </select>
+            <div style={{ display:"flex",gap:8,marginBottom:10 }}>
+              <input type="number" min="0" step="0.01" value={recvQty} onChange={e=>setRecvQty(e.target.value)} placeholder="Dami" style={{ ...inputStyle,flex:1 }}/>
+              <input value={recvSupplier} onChange={e=>setRecvSupplier(e.target.value)} placeholder="Supplier (opsyonal)" style={{ ...inputStyle,flex:1 }}/>
+            </div>
+            <button onClick={saveReceiving} disabled={recvSaving} style={{ width:"100%",padding:11,background:recvSaving?"#f1f5f9":"#2563eb",border:"none",borderRadius:8,color:recvSaving?"#94a3b8":"#fff",fontWeight:800,fontSize:13,cursor:recvSaving?"not-allowed":"pointer" }}>{recvSaving?"Sinasave...":"📥 I-log ang Pagdating"}</button>
+          </div>
+
+          <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>KASALUKUYANG OFFICE STOCK</div>
+          {officeStock.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang stock sa office.</div> :
+            <div style={{ background:"white",borderRadius:10,border:"1px solid #e2e8f0",marginBottom:16,overflow:"hidden" }}>
+              {officeStock.map(s=>(
+                <div key={s.id} style={{ display:"flex",justifyContent:"space-between",padding:"9px 14px",borderBottom:"1px solid #f1f5f9" }}>
+                  <span style={{ fontWeight:700,fontSize:13 }}>{s.raw_materials?.name||"?"}</span>
+                  <span style={{ fontWeight:800,fontSize:13,color:s.stock_qty<0?"#dc2626":"#1c1917" }}>{s.stock_qty} {s.raw_materials?.unit}</span>
+                </div>
+              ))}
+            </div>
+          }
+
+          <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>KASAYSAYAN NG PAGDATING</div>
+          {receiving.map(r=>(
+            <div key={r.id} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f1f5f9",fontSize:12 }}>
+              <span><b>{r.raw_materials?.name}</b> +{r.qty} {r.raw_materials?.unit} {r.supplier_name?`· ${r.supplier_name}`:""}</span>
+              <span style={{ color:"#94a3b8",fontSize:11 }}>{new Date(r.created_at).toLocaleString("en-PH")}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && subTab==="distribution" && (
+        <div>
+          <div style={{ background:"white",borderRadius:12,padding:16,marginBottom:16,border:"1.5px solid #e2e8f0" }}>
+            <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>MAGPADALA NG STOCK SA STORE (babawasin sa office stock)</div>
+            <select value={distMaterial} onChange={e=>setDistMaterial(e.target.value)} style={{ ...inputStyle,width:"100%",marginBottom:8,background:"white" }}>
+              <option value="">-- Pumili ng material --</option>
+              {materials.map(m=>{
+                const stockRow=officeStock.find(s=>s.material_id===m.id);
+                return <option key={m.id} value={m.id}>{m.name} ({m.unit}) — office stock: {stockRow?.stock_qty||0}</option>;
+              })}
+            </select>
+            <div style={{ display:"flex",gap:8,marginBottom:10 }}>
+              <input type="number" min="0" step="0.01" value={distQty} onChange={e=>setDistQty(e.target.value)} placeholder="Dami" style={{ ...inputStyle,flex:1 }}/>
+              <select value={distBranch} onChange={e=>setDistBranch(parseInt(e.target.value))} style={{ ...inputStyle,flex:1,background:"white" }}>
+                {BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <button onClick={saveDistribution} disabled={distSaving} style={{ width:"100%",padding:11,background:distSaving?"#f1f5f9":"#ea580c",border:"none",borderRadius:8,color:distSaving?"#94a3b8":"#fff",fontWeight:800,fontSize:13,cursor:distSaving?"not-allowed":"pointer" }}>{distSaving?"Sinasave...":"🚚 I-log ang Pagpapadala"}</button>
+          </div>
+
+          <div style={{ fontSize:12,fontWeight:800,color:"#78716c",marginBottom:8 }}>KASAYSAYAN NG PAGPAPADALA</div>
+          {distribution.length===0 ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8",fontSize:12 }}>Wala pang na-distribute.</div> :
+            distribution.map(d=>(
+              <div key={d.id} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f1f5f9",fontSize:12 }}>
+                <span><b>{d.raw_materials?.name}</b> -{d.qty} {d.raw_materials?.unit} → {BRANCHES.find(b=>b.id===d.branch_id)?.name}</span>
+                <span style={{ color:"#94a3b8",fontSize:11 }}>{new Date(d.created_at).toLocaleString("en-PH")}</span>
+              </div>
+            ))
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SpoilageModal({ onClose, toast, currentUser, currentBranch }) {
   const [materials, setMaterials] = useState([]);
   const [recentSpoilage, setRecentSpoilage] = useState([]);
