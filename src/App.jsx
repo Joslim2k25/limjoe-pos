@@ -1063,6 +1063,7 @@ export default function App() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinMode, setPinMode] = useState("");
+  const [punchConfirm, setPunchConfirm] = useState(null); // {name, action, time} or null
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [locked, setLocked] = useState(false);
 
@@ -1265,7 +1266,7 @@ export default function App() {
       // missing almost everyone.
       const EMP_CACHE_KEY = "limjoe_employees_cache_v1";
       if (Array.isArray(emps) && emps.length > 0) {
-        const mapped = emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active);
+        const mapped = emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false, shift_start:e.shift_start||"09:00" })).filter(e=>e.active);
         setEmployees(mapped);
         try { localStorage.setItem(EMP_CACHE_KEY, JSON.stringify(mapped)); } catch {}
       } else {
@@ -1276,7 +1277,7 @@ export default function App() {
           if (Array.isArray(retry) && retry.length > 0) retried = retry;
         }
         if (retried) {
-          const mapped = retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active);
+          const mapped = retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false, shift_start:e.shift_start||"09:00" })).filter(e=>e.active);
           setEmployees(mapped);
           try { localStorage.setItem(EMP_CACHE_KEY, JSON.stringify(mapped)); } catch {}
         } else {
@@ -1359,8 +1360,8 @@ export default function App() {
     const emp=employees.find(e=>e.pin===pin);
     if (!emp) { const a=loginAttempts+1; setLoginAttempts(a); setPinInput(""); if(a>=3){setLocked(true);setPinError("🔒 3 maling PIN! Locked ng 30 segundo.");setTimeout(()=>{setLocked(false);setLoginAttempts(0);setPinError("");},30000);}else setPinError(`Mali ang PIN. ${3-a} tries pa.`); return; }
     setLoginAttempts(0); setPinError(""); setPinInput("");
-    if (pinMode==="dtr-in") { const eb=findActiveBranchFor(emp.id); if(eb){setPinError(`${emp.name} naka-login pa sa ${eb.name}!`);return;} const nd={...dtrData}; const k=`${emp.id}_${currentBranch.id}_${todayStr()}`; if(!nd[k])nd[k]=[]; nd[k].push({in:nowStr(),out:null,name:emp.name}); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:currentBranch.id,dtr_date:todayStr(),time_in:nowStr()}); toast(`🟢 TIME IN: ${emp.emoji} ${emp.name}`); setPinMode(""); return; }
-    if (pinMode==="dtr-out") { const ab=findActiveBranchFor(emp.id); if(!ab){setPinError(`${emp.name} hindi naka-time in!`);return;} const nd={...dtrData}; const k=`${emp.id}_${ab.id}_${todayStr()}`; const entry=nd[k][nd[k].length-1]; entry.out=nowStr(); const tm=nd[k].filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:ab.id,dtr_date:todayStr(),time_in:entry.in,time_out:entry.out}); toast(`🔴 TIME OUT: ${emp.emoji} ${emp.name} | Total: ${formatHrs(tm)}`); setPinMode(""); return; }
+    if (pinMode==="dtr-in") { const eb=findActiveBranchFor(emp.id); if(eb){setPinError(`${emp.name} naka-login pa sa ${eb.name}!`);return;} const nd={...dtrData}; const k=`${emp.id}_${currentBranch.id}_${todayStr()}`; if(!nd[k])nd[k]=[]; const tNow=nowStr(); nd[k].push({in:tNow,out:null,name:emp.name}); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:currentBranch.id,dtr_date:todayStr(),time_in:tNow}); toast(`🟢 TIME IN: ${emp.emoji} ${emp.name}`); setPunchConfirm({name:emp.name,action:"TIME IN",time:tNow}); setPinMode(""); return; }
+    if (pinMode==="dtr-out") { const ab=findActiveBranchFor(emp.id); if(!ab){setPinError(`${emp.name} hindi naka-time in!`);return;} const nd={...dtrData}; const k=`${emp.id}_${ab.id}_${todayStr()}`; const entry=nd[k][nd[k].length-1]; const tNow=nowStr(); entry.out=tNow; const tm=nd[k].filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:ab.id,dtr_date:todayStr(),time_in:entry.in,time_out:tNow}); toast(`🔴 TIME OUT: ${emp.emoji} ${emp.name} | Total: ${formatHrs(tm)}`); setPunchConfirm({name:emp.name,action:"TIME OUT",time:tNow}); setPinMode(""); return; }
     if (pinMode==="cashier-login") { if(ROLE_LEVEL[emp.role]>=3){setPinError("Admin/Owner — gamitin ang Admin Portal.");return;} if(emp.branchId&&emp.branchId!==currentBranch.id){setPinError(`${emp.name} ay nasa ${BRANCHES.find(b=>b.id===emp.branchId)?.name} lang.`);return;} setCurrentUser(emp); setCart([]); setActiveCat(activeCategories[0]?.key||"JUICE"); setDiscountType(null); setCashGiven(0); setPaymentMethod("cash"); setOrderType("instore"); setPosScreen("pos"); setEnv("cashier"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); auditLog("LOGIN", `${emp.name} logged in as ${emp.role}`, emp, currentBranch.id, currentBranch.name);
       // orderNum was previously a session-local counter that always restarted at 1001 on
       // every fresh page load — different devices/reloads throughout the same day would
@@ -1829,6 +1830,18 @@ export default function App() {
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showSpoilage&&<SpoilageModal onClose={()=>setShowSpoilage(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showBorrowed&&<BorrowedModal onClose={()=>setShowBorrowed(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
+      {punchConfirm&&(
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:99999,padding:20 }} onClick={e=>{if(e.target===e.currentTarget)setPunchConfirm(null);}}>
+          <div style={{ background:"#fff",borderRadius:16,padding:"28px 24px",textAlign:"center",maxWidth:320,width:"100%",boxShadow:"0 10px 40px rgba(0,0,0,.3)" }}>
+            <div style={{ fontSize:48,marginBottom:6 }}>✅</div>
+            <div style={{ fontSize:13,color:"#78716c",fontWeight:700,marginBottom:4 }}>{punchConfirm.name}</div>
+            <div style={{ fontSize:22,fontWeight:900,color:punchConfirm.action==="TIME IN"?"#16a34a":"#dc2626",marginBottom:10 }}>{punchConfirm.action}</div>
+            <div style={{ fontSize:28,fontWeight:900,color:"#1c1917",fontVariantNumeric:"tabular-nums" }}>{punchConfirm.time}</div>
+            <div style={{ marginTop:10,fontSize:11,color:"#16a34a",fontWeight:700 }}>✔ Naka-save na sa system</div>
+            <button onClick={()=>setPunchConfirm(null)} style={{ marginTop:18,width:"100%",padding:11,background:"#1c1917",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer" }}>OK</button>
+          </div>
+        </div>
+      )}
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"} branchId={env==="admin"?(bFilter||currentBranch.id):currentBranch.id}/>}
       {showTxnDrill&&<TransactionDrillModal date={showTxnDrill.date} type={showTxnDrill.type} filterKey={showTxnDrill.filterKey} label={showTxnDrill.label} branchId={bFilter} onClose={()=>setShowTxnDrill(null)}/>}
@@ -2268,14 +2281,29 @@ export default function App() {
     const todayOrders=getOrders(todayStr(),bFilter); const todaySum=calcSum(todayOrders); const todayExp=getExps(todayStr(),bFilter).reduce((s,e)=>s+parseFloat(e.amount),0);
     const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter).filter(o=>!o.voided); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.cards||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; const vatExempt=ords.filter(o=>o.discountType==="SNR"||o.discountType==="PWD").reduce((s,o)=>s+o.total,0); const vatableSales=gross-vatExempt; const vatAmt=Math.round(vatableSales*12/112*100)/100; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,vatAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{
-      let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0;
+      let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0,totalLateMins=0,lateDeduction=0;
       const start=new Date(payrollFrom),end=new Date(payrollTo);
       const dailyRate=getDailyRate(emp);
       const hourlyRate=dailyRate/8; // Daily Rate ÷ 8 = hourly rate, used for undertime deduction
+      // Late deduction policy: 30-min block rate = hourlyRate/2. Minimum 30 mins deducted for
+      // ANY lateness (even 1 min late), rounding UP to the next 30-min block beyond that
+      // (e.g. 35 mins late = 2 blocks = 1 hour deducted).
+      const halfHourRate=hourlyRate/2;
+      const shiftStart=emp.shift_start||"09:00";
       for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
         const dk=d.toISOString().split("T")[0];
         let dayMins=0;
-        BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});
+        BRANCHES.forEach(b=>{
+          const logs=getEmpDTR(emp.id,b.id,dk);
+          dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);
+          if(logs.length>0){
+            const dayLateMins=Math.max(0,calcMins(shiftStart,logs[0].in));
+            if(dayLateMins>0){
+              totalLateMins+=dayLateMins;
+              lateDeduction+=Math.ceil(dayLateMins/30)*halfHourRate;
+            }
+          }
+        });
         if(dayMins>0){
           workDays++;totalMins+=dayMins;
           if(dayMins>480)otMins+=(dayMins-480); // beyond 8 hrs/day counts as OT
@@ -2292,15 +2320,16 @@ export default function App() {
       const basicPay=workDays*dailyRate;
       const otPay=Math.round(otHours*otRate*100)/100;
       const undertimeDed=Math.round(undertimeHours*hourlyRate*100)/100;
-      const grossPay=basicPay+otPay+holidayPay-undertimeDed;
+      lateDeduction=Math.round(lateDeduction*100)/100;
+      const grossPay=basicPay+otPay+holidayPay-undertimeDed-lateDeduction;
       // Statutory deductions (SSS/PhilHealth/Pag-IBIG) apply only on the 11-25 cutoff
       // (payrollTo day-of-month === 25) — not the 26-10 cutoff, and never for an employee
       // who had zero days worked this period (no income to deduct against).
       const isDeductionPeriod=new Date(payrollTo).getDate()===25;
       const statDed=(isDeductionPeriod&&workDays>0)?PAYROLL_DEDUCTIONS:0;
-      const totalDed=statDed+undertimeDed;
-      const netPay=grossPay-statDed; // undertime already subtracted from grossPay above
-      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
+      const totalDed=statDed+undertimeDed+lateDeduction;
+      const netPay=grossPay-statDed; // undertime + late already subtracted from grossPay above
+      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,totalLateMins,lateDeduction,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
     });
 
     const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"expenses",label:"💸 Expenses"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"office",label:"🏢 Office"},{key:"audit",label:"📝 Audit Trail"}];
@@ -3072,10 +3101,11 @@ export default function App() {
                 <div style={{ textAlign:"center",minWidth:60 }}><div style={{ fontWeight:900,fontSize:16,color:C.info }}>{emp.workDays}</div><div style={{ fontSize:9,color:C.text3 }}>Days</div></div>
                 <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.otHours>0?C.warning:C.text3 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>OT Hrs</div></div>
                 <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.undertimeHours>0?C.danger:C.text3 }}>{emp.undertimeHours>0?`${emp.undertimeHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Undertime</div></div>
+                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.totalLateMins>0?C.danger:C.text3 }}>{emp.totalLateMins>0?`${emp.totalLateMins}m`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Late</div></div>
                 <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.text }}>₱{emp.basicPay.toFixed(0)}</div><div style={{ fontSize:9,color:C.text3 }}>Basic</div></div>
                 <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(0)}`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Deductions</div></div>
                 <div style={{ textAlign:"center",minWidth:90 }}><div style={{ fontWeight:900,fontSize:18,color:C.success }}>₱{emp.netPay.toFixed(2)}</div><div style={{ fontSize:9,color:C.text3 }}>NET PAY</div></div>
-                <button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
+                <button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}${emp.lateDeduction>0?`<div class="row"><span>Late (${emp.totalLateMins} mins)</span><span>-₱${emp.lateDeduction.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
               </div>
             </div>))}
             {payrollRows.length===0&&<div style={EM}>Walang employees</div>}
