@@ -1040,6 +1040,7 @@ export default function App() {
   const [dbProducts, setDbProducts] = useState([]);
   const [dbCategories, setDbCategories] = useState(DEFAULT_CATEGORIES);
   const [holidays, setHolidays] = useState([]);
+  const [scheduleMap, setScheduleMap] = useState({}); // scheduleMap[empId][dayOfWeek] = {shift_start, is_day_off}
   const [loyaltyMembers, setLoyaltyMembers] = useState([]);
   const [loyaltyMembersLoading, setLoyaltyMembersLoading] = useState(false);
   const [loyaltySearch, setLoyaltySearch] = useState("");
@@ -1136,6 +1137,7 @@ export default function App() {
   const [newEmpRole, setNewEmpRole] = useState("cashier");
   const [newEmpBranch, setNewEmpBranch] = useState(BRANCHES[0].id);
   const [showAddEmp, setShowAddEmp] = useState(false);
+  const [schedEmp, setSchedEmp] = useState(null); // employee currently being scheduled, or null
   const [cashOnHand, setCashOnHand] = useState({});
   const [bankDeposit, setBankDeposit] = useState({});
   const [cohInput, setCohInput] = useState({});
@@ -1200,6 +1202,17 @@ export default function App() {
     if (adminTab !== "expenses") return;
     loadExpensesAdmin();
   },[adminTab, expensesAdminFrom, expensesAdminTo, selectedBranch]);
+
+  // ── LOAD WEEKLY SCHEDULES (on-demand, when admin opens Payroll — needed for late calc) ──
+  useEffect(()=>{
+    if (adminTab !== "payroll") return;
+    (async()=>{
+      const data = await sb("employee_schedules?select=*");
+      const map={};
+      (Array.isArray(data)?data:[]).forEach(s=>{ if(!map[s.emp_id])map[s.emp_id]={}; map[s.emp_id][s.day_of_week]={shift_start:s.shift_start?s.shift_start.slice(0,5):null,is_day_off:!!s.is_day_off}; });
+      setScheduleMap(map);
+    })();
+  },[adminTab]);
 
   // ── LOAD LOYALTY MEMBERS (on-demand, when admin opens the tab) ────────────
   const loadLoyaltyMembers = async () => {
@@ -2289,14 +2302,17 @@ export default function App() {
       // ANY lateness (even 1 min late), rounding UP to the next 30-min block beyond that
       // (e.g. 35 mins late = 2 blocks = 1 hour deducted).
       const halfHourRate=hourlyRate/2;
-      const shiftStart=emp.shift_start||"09:00";
+      const empSchedule=scheduleMap[emp.id]||{};
       for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
         const dk=d.toISOString().split("T")[0];
+        const dow=d.getDay();
+        const daySched=empSchedule[dow];
         let dayMins=0;
         BRANCHES.forEach(b=>{
           const logs=getEmpDTR(emp.id,b.id,dk);
           dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);
-          if(logs.length>0){
+          if(logs.length>0 && !(daySched&&daySched.is_day_off)){
+            const shiftStart=(daySched&&daySched.shift_start)?daySched.shift_start:(emp.shift_start||"09:00");
             const dayLateMins=Math.max(0,calcMins(shiftStart,logs[0].in));
             if(dayLateMins>0){
               totalLateMins+=dayLateMins;
@@ -3223,7 +3239,8 @@ export default function App() {
               </>);
             })()}
           </div>)}
-          {adminTab==="employees"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={PT}>👥 Employee Management</div><button onClick={()=>setShowAddEmp(s=>!s)} style={{ padding:"8px 16px",background:showAddEmp?C.bg3:C.primary,border:`1px solid ${showAddEmp?C.border:C.primary}`,borderRadius:8,color:showAddEmp?C.text2:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddEmp?"✕ Cancel":"+ Add Employee"}</button></div>{showAddEmp&&(<div style={{ background:"white",borderRadius:12,padding:"16px",marginBottom:16,border:`2px solid ${C.primary}33`,boxShadow:C.shadow }}><div style={{ display:"flex",gap:8,marginBottom:8,flexWrap:"wrap" }}><input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="Pangalan" style={{ flex:2,minWidth:140,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}/><input value={newEmpPin} onChange={e=>setNewEmpPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="4-digit PIN" maxLength={4} style={{ flex:1,minWidth:100,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none",fontFamily:"monospace",letterSpacing:2 }}/></div><div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}><select value={newEmpRole} onChange={e=>setNewEmpRole(e.target.value)} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select>{newEmpRole!=="admin"&&(<select value={newEmpBranch} onChange={e=>setNewEmpBranch(parseInt(e.target.value))} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>)}</div><button onClick={createEmployee} style={{ width:"100%",padding:"11px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:13,cursor:"pointer" }}>Save Employee</button></div>)}{employees.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:24 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:C.text3 }}><span style={{ color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</span>{emp.branchId?` · ${BRANCHES.find(b=>b.id===emp.branchId)?.name}`:" · All Branches"}</div></div><div style={{ background:C.bg3,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:18,fontWeight:900,color:C.warning,letterSpacing:4,border:`1px solid ${C.border}` }}>{emp.pin}</div>{emp.id!==currentUser?.id&&(<button onClick={()=>deactivateEmployee(emp)} style={{ padding:"7px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Deactivate</button>)}</div></div>))}</div>)}
+          {adminTab==="employees"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={PT}>👥 Employee Management</div><button onClick={()=>setShowAddEmp(s=>!s)} style={{ padding:"8px 16px",background:showAddEmp?C.bg3:C.primary,border:`1px solid ${showAddEmp?C.border:C.primary}`,borderRadius:8,color:showAddEmp?C.text2:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddEmp?"✕ Cancel":"+ Add Employee"}</button></div>{showAddEmp&&(<div style={{ background:"white",borderRadius:12,padding:"16px",marginBottom:16,border:`2px solid ${C.primary}33`,boxShadow:C.shadow }}><div style={{ display:"flex",gap:8,marginBottom:8,flexWrap:"wrap" }}><input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="Pangalan" style={{ flex:2,minWidth:140,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}/><input value={newEmpPin} onChange={e=>setNewEmpPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="4-digit PIN" maxLength={4} style={{ flex:1,minWidth:100,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none",fontFamily:"monospace",letterSpacing:2 }}/></div><div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}><select value={newEmpRole} onChange={e=>setNewEmpRole(e.target.value)} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select>{newEmpRole!=="admin"&&(<select value={newEmpBranch} onChange={e=>setNewEmpBranch(parseInt(e.target.value))} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>)}</div><button onClick={createEmployee} style={{ width:"100%",padding:"11px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:13,cursor:"pointer" }}>Save Employee</button></div>)}{employees.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:24 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:C.text3 }}><span style={{ color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</span>{emp.branchId?` · ${BRANCHES.find(b=>b.id===emp.branchId)?.name}`:" · All Branches"}</div></div><div style={{ background:C.bg3,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:18,fontWeight:900,color:C.warning,letterSpacing:4,border:`1px solid ${C.border}` }}>{emp.pin}</div>{emp.id!==currentUser?.id&&(<button onClick={()=>deactivateEmployee(emp)} style={{ padding:"7px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Deactivate</button>)}<button onClick={()=>setSchedEmp(emp)} style={{ padding:"7px 12px",background:"#eff6ff",border:"1px solid #2563eb",borderRadius:8,color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>📅 Schedule</button></div></div>))}</div>)}
+          {schedEmp&&<WeeklyScheduleModal emp={schedEmp} onClose={()=>setSchedEmp(null)} toast={toast}/>}
 
         </div>
       </div>
@@ -3536,6 +3553,75 @@ const SPOILAGE_REASONS = [
   { key:"other", label:"❓ Iba pa" },
 ];
 // ─── OFFICE MANAGEMENT (expenses to suppliers + central stock receiving/distribution) ────
+// ─── WEEKLY SCHEDULE EDITOR (per employee, per day-of-week shift + day-off) ───
+const DOW_NAMES=["Linggo","Lunes","Martes","Miyerkules","Huwebes","Biyernes","Sabado"];
+function WeeklyScheduleModal({ emp, onClose, toast }) {
+  const [rows, setRows] = useState(Array.from({length:7},(_,dow)=>({dow, shift_start:emp.shift_start||"09:00", is_day_off:false})));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(()=>{
+    (async()=>{
+      const data = await sb(`employee_schedules?emp_id=eq.${emp.id}&select=*`);
+      if (Array.isArray(data) && data.length>0) {
+        setRows(prev=>prev.map(r=>{
+          const found=data.find(d=>d.day_of_week===r.dow);
+          return found ? { dow:r.dow, shift_start: found.shift_start?found.shift_start.slice(0,5):(emp.shift_start||"09:00"), is_day_off: !!found.is_day_off } : r;
+        }));
+      }
+      setLoading(false);
+    })();
+  },[]);
+
+  async function saveAll(){
+    setSaving(true);
+    let ok=0, fail=0;
+    for (const r of rows) {
+      const result = await sb(`employee_schedules?on_conflict=emp_id,day_of_week`,"POST",[{
+        emp_id: emp.id, emp_name: emp.name, day_of_week: r.dow,
+        shift_start: r.is_day_off ? null : r.shift_start,
+        is_day_off: r.is_day_off,
+      }],{ Prefer: "resolution=merge-duplicates,return=minimal" });
+      if (result!==null) ok++; else fail++;
+    }
+    setSaving(false);
+    if (fail===0) toast(`✅ Na-save ang schedule ni ${emp.name}!`);
+    else toast(`⚠️ ${ok} na-save, ${fail} nabigo.`,"err");
+    onClose();
+  }
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5000,padding:16 }} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{ background:"white",borderRadius:16,width:"min(420px,95vw)",maxHeight:"85vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)" }}>
+        <div style={{ padding:"16px 20px",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,background:"white",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+          <div>
+            <div style={{ fontWeight:900,fontSize:16 }}>📅 Weekly Schedule</div>
+            <div style={{ fontSize:12,color:"#78716c" }}>{emp.emoji} {emp.name}</div>
+          </div>
+          <button onClick={onClose} style={{ border:"none",background:"#f8fafc",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16 }}>✕</button>
+        </div>
+        <div style={{ padding:"14px 20px" }}>
+          {loading ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div> :
+            rows.map(r=>(
+              <div key={r.dow} style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid #f1f5f9" }}>
+                <div style={{ width:80,fontSize:12,fontWeight:700 }}>{DOW_NAMES[r.dow]}</div>
+                <input type="time" value={r.shift_start} disabled={r.is_day_off}
+                  onChange={e=>setRows(rows.map(x=>x.dow===r.dow?{...x,shift_start:e.target.value}:x))}
+                  style={{ flex:1,padding:"7px 9px",fontSize:12,borderRadius:6,border:"1.5px solid #e2e8f0",opacity:r.is_day_off?0.4:1 }}/>
+                <label style={{ display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#78716c",whiteSpace:"nowrap" }}>
+                  <input type="checkbox" checked={r.is_day_off} onChange={e=>setRows(rows.map(x=>x.dow===r.dow?{...x,is_day_off:e.target.checked}:x))}/>
+                  Day Off
+                </label>
+              </div>
+            ))
+          }
+          <button onClick={saveAll} disabled={saving||loading} style={{ width:"100%",marginTop:14,padding:12,background:saving?"#f1f5f9":"#1c1917",color:saving?"#94a3b8":"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:13,cursor:saving?"not-allowed":"pointer" }}>{saving?"Sinasave...":"💾 I-save ang Schedule"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OfficeTab({ currentUser, toast }) {
   const [subTab, setSubTab] = useState("expenses");
   const [materials, setMaterials] = useState([]);
