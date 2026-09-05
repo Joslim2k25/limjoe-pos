@@ -141,7 +141,7 @@ const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cas
 
 // ─── PAYROLL RATES ────────────────────────────────────────────────────────────
 const DEFAULT_DAILY_RATE = 695; // NCR rate
-const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees
+const PROVINCIAL_DAILY_RATE = 600; // provincial-rate employees (Marina, Jennifer, May)
 const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "May N. Cortez"];
 const getDailyRate = (emp) => {
   if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
