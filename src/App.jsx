@@ -3043,7 +3043,28 @@ export default function App() {
             </div>);
           })()}
 
-          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
+          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
+            {(()=>{
+              const now=new Date();
+              const y=now.getFullYear(), m=now.getMonth(); // 0-indexed month
+              const pad=n=>String(n).padStart(2,"0");
+              const fmt2=(yy,mm,dd)=>`${yy}-${pad(mm+1)}-${pad(dd)}`;
+              const isFirstHalfNow = now.getDate()<=25 && now.getDate()>=11;
+              // Cutoff A: 11–25 of the current month. Cutoff B: 26 of one month – 10 of the next.
+              const cutoffs=[
+                { label:"11–25 (kasalukuyang buwan)", from:fmt2(y,m,11), to:fmt2(y,m,25) },
+                { label:"26 – 10 (susunod na buwan)", from:fmt2(y,m,26), to:fmt2(m===11?y+1:y,(m+1)%12,10) },
+                { label:"26 – 10 (nakaraang buwan)", from:fmt2(m===0?y-1:y,(m+11)%12,26), to:fmt2(y,m,10) },
+              ];
+              return (
+                <div style={{ display:"flex",gap:6,marginBottom:12,flexWrap:"wrap" }}>
+                  {cutoffs.map(c=>(
+                    <button key={c.label} onClick={()=>{setPayrollFrom(c.from);setPayrollTo(c.to);}}
+                      style={{ padding:"6px 11px",background:(payrollFrom===c.from&&payrollTo===c.to)?C.text:"white",color:(payrollFrom===c.from&&payrollTo===c.to)?"white":C.text2,border:`1px solid ${C.border}`,borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer" }}>{c.label}</button>
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
               <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions:</b> SSS ₱450 + PhilHealth ₱200 + Pag-IBIG ₱200 = ₱850 (cutoffs ending 25th/30th)
             </div>
