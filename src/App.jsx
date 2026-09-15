@@ -3128,24 +3128,58 @@ export default function App() {
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
             </div>
-            {payrollRows.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
-              <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
-                <span style={{ fontSize:22 }}>{emp.emoji}</span>
-                <div style={{ flex:1,minWidth:120 }}>
-                  <div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div>
-                  <div style={{ fontSize:11,color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()} · ₱{emp.dailyRate}/day</div>
-                </div>
-                <div style={{ textAlign:"center",minWidth:60 }}><div style={{ fontWeight:900,fontSize:16,color:C.info }}>{emp.workDays}</div><div style={{ fontSize:9,color:C.text3 }}>Days</div></div>
-                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.otHours>0?C.warning:C.text3 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>OT Hrs</div></div>
-                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.undertimeHours>0?C.danger:C.text3 }}>{emp.undertimeHours>0?`${emp.undertimeHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Undertime</div></div>
-                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.totalLateMins>0?C.danger:C.text3 }}>{emp.totalLateMins>0?`${emp.totalLateMins}m`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Late</div></div>
-                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.text }}>₱{emp.basicPay.toFixed(0)}</div><div style={{ fontSize:9,color:C.text3 }}>Basic</div></div>
-                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(0)}`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Deductions</div></div>
-                <div style={{ textAlign:"center",minWidth:90 }}><div style={{ fontWeight:900,fontSize:18,color:C.success }}>₱{emp.netPay.toFixed(2)}</div><div style={{ fontSize:9,color:C.text3 }}>NET PAY</div></div>
-                <button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}${emp.lateDeduction>0?`<div class="row"><span>Late (${emp.totalLateMins} mins)</span><span>-₱${emp.lateDeduction.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
-              </div>
-            </div>))}
-            {payrollRows.length===0&&<div style={EM}>Walang employees</div>}
+            <div style={{ background:"white",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow,overflow:"auto" }}>
+              <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:900 }}>
+                <thead>
+                  <tr style={{ background:C.bg2,borderBottom:`2px solid ${C.border}` }}>
+                    <th style={{ padding:"10px 12px",textAlign:"left" }}>Employee</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Days</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Hrs</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>OT Hrs</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Late</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Basic</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>OT Pay</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Holiday</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Gross</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Deductions</th>
+                    <th style={{ padding:"10px 8px",textAlign:"right" }}>NET PAY</th>
+                    <th style={{ padding:"10px 8px" }}>Payslip</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payrollRows.map(emp=>(
+                    <tr key={emp.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                      <td style={{ padding:"10px 12px",fontWeight:800 }}>{emp.emoji} {emp.name}<div style={{ fontSize:10,color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()} · ₱{emp.dailyRate}/day</div></td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:800,color:C.info }}>{emp.workDays}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right" }}>{emp.totalHrs}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.otHours>0?C.warning:C.text3,fontWeight:emp.otHours>0?700:400 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.totalLateMins>0?C.danger:C.text3,fontWeight:emp.totalLateMins>0?700:400 }}>{emp.totalLateMins>0?`${emp.totalLateMins}m`:"—"}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right" }}>₱{emp.basicPay.toFixed(2)}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.otPay>0?C.warning:C.text3 }}>{emp.otPay>0?`₱${emp.otPay.toFixed(2)}`:"—"}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.holidayPay>0?C.info:C.text3 }}>{emp.holidayPay>0?`₱${emp.holidayPay.toFixed(2)}`:"—"}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:800 }}>₱{emp.grossPay.toFixed(2)}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(2)}`:"—"}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:900,color:C.success,fontSize:14 }}>₱{emp.netPay.toFixed(2)}</td>
+                      <td style={{ padding:"10px 8px" }}>
+                        <button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}${emp.lateDeduction>0?`<div class="row"><span>Late (${emp.totalLateMins} mins)</span><span>-₱${emp.lateDeduction.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:7,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Payslip</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {payrollRows.length===0&&(<tr><td colSpan={12} style={{ padding:20,textAlign:"center",color:C.text3 }}>Walang employees</td></tr>)}
+                </tbody>
+                {payrollRows.length>0&&(
+                  <tfoot>
+                    <tr style={{ background:C.bg2,fontWeight:900,borderTop:`2px solid ${C.border}` }}>
+                      <td colSpan={8} style={{ padding:"10px 12px" }}>TOTAL</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right" }}>₱{payrollRows.reduce((s,e)=>s+e.grossPay,0).toFixed(2)}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:C.danger }}>-₱{payrollRows.reduce((s,e)=>s+e.totalDed,0).toFixed(2)}</td>
+                      <td style={{ padding:"10px 8px",textAlign:"right",color:C.success,fontSize:14 }}>₱{payrollRows.reduce((s,e)=>s+e.netPay,0).toFixed(2)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>)}
 
           {adminTab==="holidays"&&(<div>
