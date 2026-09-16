@@ -1206,6 +1206,7 @@ export default function App() {
   const [newEmpBranch, setNewEmpBranch] = useState(BRANCHES[0].id);
   const [showAddEmp, setShowAddEmp] = useState(false);
   const [bulkPayrollSaving, setBulkPayrollSaving] = useState(false);
+  const [daysWorkedModal, setDaysWorkedModal] = useState(null); // {name, dates} or null
   const [schedEmp, setSchedEmp] = useState(null); // employee currently being scheduled, or null
   const [cashOnHand, setCashOnHand] = useState({});
   const [bankDeposit, setBankDeposit] = useState({});
@@ -2377,6 +2378,7 @@ export default function App() {
     const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter).filter(o=>!o.voided); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.cards||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; const vatExempt=ords.filter(o=>o.discountType==="SNR"||o.discountType==="PWD").reduce((s,o)=>s+o.total,0); const vatableSales=gross-vatExempt; const vatAmt=Math.round(vatableSales*12/112*100)/100; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,vatAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{
       let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0,totalLateMins=0,lateDeduction=0;
+      const workedDates=[]; // dates the employee actually worked, for the Lates Summary drill-down
       const start=new Date(payrollFrom),end=new Date(payrollTo);
       const dailyRate=getDailyRate(emp);
       const hourlyRate=dailyRate/8; // Daily Rate ÷ 8 = hourly rate, used for undertime deduction
@@ -2403,7 +2405,7 @@ export default function App() {
           }
         });
         if(dayMins>0){
-          workDays++;totalMins+=dayMins;
+          workDays++;totalMins+=dayMins;workedDates.push(dk);
           // OT no longer auto-derived from hours over 8/day — now only counts if explicitly
           // logged/approved via the OT Approval Requests system (matches Oniisan's policy).
           otMins+=(otApprovalsMap[`${emp.id}_${dk}`]||0)*60;
@@ -2429,7 +2431,7 @@ export default function App() {
       const statDed=(isDeductionPeriod&&workDays>0)?PAYROLL_DEDUCTIONS:0;
       const totalDed=statDed+undertimeDed+lateDeduction;
       const netPay=grossPay-statDed; // undertime + late already subtracted from grossPay above
-      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,totalLateMins,lateDeduction,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
+      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,totalLateMins,lateDeduction,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay,workedDates};
     });
 
     const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"expenses",label:"💸 Expenses"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"office",label:"🏢 Office"},{key:"audit",label:"📝 Audit Trail"}];
@@ -3265,6 +3267,71 @@ export default function App() {
                 </div>
               ) : <div style={{ fontSize:11,color:C.text3,marginTop:8 }}>Manager, Admin o Owner lang ang puwedeng mag-approve ng OT requests.</div>}
             </div>
+
+            <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:10 }}>
+                <div style={{ fontWeight:800,fontSize:13,color:C.text }}>⏰ Lates Summary — {payrollFrom} to {payrollTo} (naka-rank, pinaka-maraming late sa itaas)</div>
+                <button onClick={()=>{
+                  const sorted=[...payrollRows].sort((a,b)=>b.totalLateMins-a.totalLateMins);
+                  const rows=[["#","Employee","Role","Days Worked","Total Late (mins)"]];
+                  sorted.forEach((s,i)=>rows.push([i+1,s.name,s.role,s.workDays,s.totalLateMins]));
+                  const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
+                  const blob=new Blob([csv],{type:"text/csv"});
+                  const a=document.createElement("a");
+                  a.href=URL.createObjectURL(blob);a.download=`lates-summary-${payrollFrom}-to-${payrollTo}.csv`;a.click();
+                }} style={{ padding:"7px 14px",background:"white",border:`1px solid ${C.border}`,borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer" }}>📥 Download CSV</button>
+              </div>
+              {(()=>{
+                const sorted=[...payrollRows].sort((a,b)=>b.totalLateMins-a.totalLateMins);
+                const anyLate=sorted.some(s=>s.totalLateMins>0);
+                if(!anyLate)return <div style={{ textAlign:"center",padding:16,color:C.text3,fontSize:12 }}>🎉 Walang na-late sa buong period na ito.</div>;
+                return (
+                  <div style={{ overflow:"auto" }}>
+                    <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+                      <thead><tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                        <th style={{ padding:"6px 8px",textAlign:"left" }}>#</th>
+                        <th style={{ padding:"6px 8px",textAlign:"left" }}>Employee</th>
+                        <th style={{ padding:"6px 8px",textAlign:"left" }}>Role</th>
+                        <th style={{ padding:"6px 8px",textAlign:"right" }}>Days Worked</th>
+                        <th style={{ padding:"6px 8px",textAlign:"right" }}>Total Late (mins)</th>
+                      </tr></thead>
+                      <tbody>
+                        {sorted.map((s,i)=>(
+                          <tr key={s.id} style={{ opacity:s.totalLateMins>0?1:0.5,borderBottom:`1px solid ${C.border}` }}>
+                            <td style={{ padding:"6px 8px" }}>{i+1}</td>
+                            <td style={{ padding:"6px 8px",fontWeight:700 }}>{s.name}</td>
+                            <td style={{ padding:"6px 8px",fontSize:11,color:C.text3,textTransform:"uppercase" }}>{s.role}</td>
+                            <td style={{ padding:"6px 8px",textAlign:"right" }}>
+                              <button onClick={()=>setDaysWorkedModal({name:s.name,dates:s.workedDates})} style={{ background:"none",border:"none",color:C.info,fontWeight:800,textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0 }}>{s.workDays}</button>
+                            </td>
+                            <td style={{ padding:"6px 8px",textAlign:"right",fontWeight:900,color:s.totalLateMins>0?C.danger:C.text3 }}>{s.totalLateMins}{s.totalLateMins>0?` (${(s.totalLateMins/60).toFixed(1)}h)`:""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {daysWorkedModal&&(
+              <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5000,padding:16 }} onClick={e=>{if(e.target===e.currentTarget)setDaysWorkedModal(null);}}>
+                <div style={{ background:"white",borderRadius:16,width:"min(360px,95vw)",maxHeight:"75vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)" }}>
+                  <div style={{ padding:"16px 20px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"white",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <div>
+                      <div style={{ fontWeight:900,fontSize:15 }}>📅 Days Worked</div>
+                      <div style={{ fontSize:12,color:C.text3 }}>{daysWorkedModal.name} · {daysWorkedModal.dates.length} araw</div>
+                    </div>
+                    <button onClick={()=>setDaysWorkedModal(null)} style={{ border:"none",background:C.bg2,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16 }}>✕</button>
+                  </div>
+                  <div style={{ padding:"12px 20px" }}>
+                    {daysWorkedModal.dates.map(dk=>(
+                      <div key={dk} style={{ padding:"7px 0",borderBottom:`1px solid ${C.bg2}`,fontSize:13,fontWeight:600 }}>{new Date(dk+"T12:00:00").toLocaleDateString("en-PH",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             <div style={{ display:"flex",justifyContent:"flex-end",marginBottom:10 }}>
               <button onClick={async()=>{
                 if(!payrollRows.length){toast("Walang payroll na na-compute.","err");return;}
