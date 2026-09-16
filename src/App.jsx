@@ -141,19 +141,14 @@ const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cas
 
 // ─── PAYROLL RATES ────────────────────────────────────────────────────────────
 const DEFAULT_DAILY_RATE = 695; // NCR rate
-const PROVINCIAL_DAILY_RATE_OLD = 560; // provincial rate before the Aug 26 cutoff
-const PROVINCIAL_DAILY_RATE_NEW = 600; // provincial rate from the Aug 26 cutoff onwards
-const PROVINCIAL_RATE_CHANGE_DATE = "2026-08-26"; // a payroll period starting on/after this date uses the new rate
+const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees
 const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "May N. Cortez"];
-const getDailyRate = (emp, periodStart) => {
+const getDailyRate = (emp) => {
   if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
-  if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) {
-    const ps = periodStart || todayStr();
-    return ps >= PROVINCIAL_RATE_CHANGE_DATE ? PROVINCIAL_DAILY_RATE_NEW : PROVINCIAL_DAILY_RATE_OLD;
-  }
+  if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) return PROVINCIAL_DAILY_RATE;
   return DEFAULT_DAILY_RATE;
 };
-const getOTRate = (emp, periodStart) => getDailyRate(emp, periodStart) / 8 * 1.25;
+const getOTRate = (emp) => getDailyRate(emp) / 8 * 1.25;
 const PAYROLL_DEDUCTIONS = 850; // SSS 450 + PhilHealth 200 + Pag-IBIG 200, applied on the 25th/30th cutoff
 const BANK_SERVICE_FEE = 25; // optional, applied only when explicitly checked for a payroll run
 
@@ -200,105 +195,6 @@ const printWin = (html) => {
   w.document.write(`<html><head><title>Limjoe</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;padding:12px;max-width:320px}.c{text-align:center}.brand{font-size:20px;font-weight:900;letter-spacing:5px}.dv{border-top:1px dashed #999;margin:8px 0}.row{display:flex;justify-content:space-between;padding:3px 0}.big{font-size:15px;font-weight:900}.grn{color:#16a34a}.sec{font-size:10px;font-weight:700;letter-spacing:1px;color:#666;margin:10px 0 4px}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#f3f4f6;padding:4px 6px;text-align:left;font-size:10px}td{padding:4px 6px;border-bottom:1px solid #e5e7eb}@media print{.np{display:none}}</style></head><body>${html}<br/><button class="np" onclick="window.print();window.close()" style="width:100%;padding:12px;font-size:14px;cursor:pointer;margin-top:8px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-weight:900">🖨️ I-PRINT</button></body></html>`);
   w.document.close();
 };
-
-// Dedicated payslip window — matches Oniisan's exact format/layout, with LIMJOE branding.
-// Generates the two standard cutoff periods (26-10 and 11-25) for a given year/month,
-// mirroring Oniisan's getCutoffPeriods() exactly.
-function getCutoffPeriods(year, month) {
-  const pad = n => String(n).padStart(2, "0");
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
-  return [
-    { label: `${pad(prevMonth)}/26/${prevYear} - ${pad(month)}/10/${year}`, start: `${prevYear}-${pad(prevMonth)}-26`, end: `${year}-${pad(month)}-10` },
-    { label: `${pad(month)}/11/${year} - ${pad(month)}/25/${year}`, start: `${year}-${pad(month)}-11`, end: `${year}-${pad(month)}-25` },
-  ];
-}
-
-function printPayslip({ name, start, end, dailyRate, daysWorked, otHours, otPay, holidayPay,
-  basicPay, grossPay, statutoryDed, customDedLabel, customDedAmt, totalDed, netPay }) {
-  const w = window.open("", "_blank");
-  w.document.write(`<!DOCTYPE html><html><head><title>Payslip - ${name}</title>
-  <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;padding:24px;max-width:380px}
-  .c{text-align:center}.b{font-weight:900}.r{color:#c0392b}
-  .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #eee}
-  .divider{border-top:1px dashed #999;margin:10px 0}
-  @media print{button{display:none}}</style></head><body>
-  <div class="c b r" style="font-size:18px;letter-spacing:3px">LIMJOE</div>
-  <div class="c" style="font-size:11px">Fruit Tea &amp; Refreshments</div>
-  <div class="c b" style="margin:8px 0;font-size:14px">PAYSLIP</div>
-  <div class="divider"></div>
-  <div class="row"><span>Employee:</span><span class="b">${name}</span></div>
-  <div class="row"><span>Period:</span><span>${start} to ${end}</span></div>
-  <div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div>
-  <div class="divider"></div>
-  <div class="b" style="margin:6px 0 4px">EARNINGS</div>
-  <div class="row"><span>Basic Pay (${daysWorked} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>
-  ${otHours>0?`<div class="row"><span>OT Pay (${otHours} hrs approved)</span><span>₱${otPay.toFixed(2)}</span></div>`:''}
-  ${holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holidayPay.toFixed(2)}</span></div>`:''}
-  <div class="row b"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div>
-  <div class="divider"></div>
-  ${totalDed>0?`<div class="b" style="margin:6px 0 4px">DEDUCTIONS</div>
-  ${statutoryDed>0?`<div class="row"><span>SSS Contribution</span><span>₱450.00</span></div>
-  <div class="row"><span>PhilHealth</span><span>₱200.00</span></div>
-  <div class="row"><span>Pag-IBIG Fund</span><span>₱200.00</span></div>`:''}
-  ${customDedAmt>0?`<div class="row"><span>${customDedLabel||'Other Deduction'}</span><span>₱${customDedAmt.toFixed(2)}</span></div>`:''}
-  <div class="row b"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div>
-  <div class="divider"></div>`:''}
-  <div class="row b r" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>
-  <div class="divider"></div>
-  <div style="margin-top:40px">
-    <div class="row"><span>Prepared by:</span><span style="border-bottom:1px solid #000;min-width:150px">&nbsp;</span></div>
-    <div class="row" style="margin-top:16px"><span>Received by:</span><span style="border-bottom:1px solid #000;min-width:150px">&nbsp;</span></div>
-    <div class="row" style="margin-top:16px"><span>Date:</span><span style="border-bottom:1px solid #000;min-width:150px">&nbsp;</span></div>
-  </div>
-  <div class="c" style="margin-top:20px;font-size:9px;color:#888">Generated: ${new Date().toLocaleString('en-PH')}</div>
-  <button onclick="window.print()" style="width:100%;margin-top:16px;padding:10px;background:#c0392b;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Print Payslip</button>
-  </body></html>`);
-  w.document.close();
-}
-
-// Permanent payslip record — every generated payslip auto-saves here for historical/13th
-// month pay reference. Uses on_conflict upsert (emp_name+period_start+period_end unique) so
-// re-generating the same employee's payslip for the same period UPDATES the existing record
-// instead of creating a duplicate.
-// ─── OFFLINE QUEUE (checkout orders) ──────────────────────────────────────────
-// If the internet drops mid-checkout, the order+items are saved here instead of being
-// lost — syncQueue() (called automatically on reconnect, and via a manual Sync Now button)
-// pushes them to Supabase once the connection is back.
-const OFFLINE_QUEUE_KEY = "limjoe_offline_queue_v1";
-function addToOfflineQueue(orderPayload, itemsPayload) {
-  const q = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
-  q.push({ order: orderPayload, items: itemsPayload, queued_at: new Date().toISOString() });
-  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
-}
-function getOfflineQueueCount() {
-  try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]").length; } catch { return 0; }
-}
-async function syncOfflineQueue(toastFn) {
-  const q = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
-  if (!q.length) { toastFn?.("Walang naka-queue — updated na ang lahat!"); return; }
-  const failed = [];
-  for (const item of q) {
-    try {
-      const result = await sb("orders", "POST", item.order);
-      const sbOrder = result && result[0];
-      if (sbOrder?.id) {
-        const itemsWithOrderId = item.items.map(i => ({ ...i, order_id: sbOrder.id }));
-        const itemsResult = await sb("order_items", "POST", itemsWithOrderId);
-        if (!itemsResult) failed.push(item);
-      } else failed.push(item);
-    } catch (e) { failed.push(item); }
-  }
-  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(failed));
-  const synced = q.length - failed.length;
-  toastFn?.(synced > 0 ? `✅ Na-sync ang ${synced} order!` : "⚠️ Hindi pa ma-sync — subukan ulit.", synced>0?undefined:"err");
-}
-
-async function savePayslipRecord(rec) {
-  const result = await sb("payroll_records?on_conflict=emp_name,period_start,period_end","POST",[rec],{ Prefer:"resolution=merge-duplicates,return=minimal" });
-  return lastSbError === null; // return=minimal means an empty (but successful) body parses to
-  // null too — lastSbError is the reliable success/failure signal here, not the return value.
-}
 
 // ─── EXCEL BULK UPLOAD HELPERS ────────────────────────────────────────────────
 function parseSheetRows(workbook, sheetName) {
@@ -1144,9 +1040,6 @@ export default function App() {
   const [dbProducts, setDbProducts] = useState([]);
   const [dbCategories, setDbCategories] = useState(DEFAULT_CATEGORIES);
   const [holidays, setHolidays] = useState([]);
-  const [scheduleMap, setScheduleMap] = useState({}); // scheduleMap[empId][dayOfWeek] = {shift_start, is_day_off}
-  const [otApprovalsMap, setOtApprovalsMap] = useState({}); // otApprovalsMap[`${empId}_${dateKey}`] = approved ot_hours
-  const [otApprovalsList, setOtApprovalsList] = useState([]);
   const [loyaltyMembers, setLoyaltyMembers] = useState([]);
   const [loyaltyMembersLoading, setLoyaltyMembersLoading] = useState(false);
   const [loyaltySearch, setLoyaltySearch] = useState("");
@@ -1170,7 +1063,6 @@ export default function App() {
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinMode, setPinMode] = useState("");
-  const [punchConfirm, setPunchConfirm] = useState(null); // {name, action, time} or null
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [locked, setLocked] = useState(false);
 
@@ -1243,9 +1135,6 @@ export default function App() {
   const [newEmpRole, setNewEmpRole] = useState("cashier");
   const [newEmpBranch, setNewEmpBranch] = useState(BRANCHES[0].id);
   const [showAddEmp, setShowAddEmp] = useState(false);
-  const [bulkPayrollSaving, setBulkPayrollSaving] = useState(false);
-  const [daysWorkedModal, setDaysWorkedModal] = useState(null); // {name, dates} or null
-  const [schedEmp, setSchedEmp] = useState(null); // employee currently being scheduled, or null
   const [cashOnHand, setCashOnHand] = useState({});
   const [bankDeposit, setBankDeposit] = useState({});
   const [cohInput, setCohInput] = useState({});
@@ -1254,26 +1143,18 @@ export default function App() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
-  const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-11`; });
+  const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); d.setDate(10); return d.toISOString().split("T")[0]; });
   const [manualPayrollEmp, setManualPayrollEmp] = useState("");
   const [manualPayrollDays, setManualPayrollDays] = useState("");
   const [manualPayrollOT, setManualPayrollOT] = useState("");
   const [manualPayrollUndertime, setManualPayrollUndertime] = useState("");
   const [manualPayrollHoliday, setManualPayrollHoliday] = useState("");
   const [manualPayrollBankFee, setManualPayrollBankFee] = useState(false);
-  const [manualPayrollCustomLabel, setManualPayrollCustomLabel] = useState("");
-  const [manualPayrollCustomAmt, setManualPayrollCustomAmt] = useState("");
-  const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-25`; });
+  const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
   const [depositLoading, setDepositLoading] = useState(false);
-  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
 
   useEffect(()=>{
     (async()=>{ await loadFromSupabase(); await loadProducts(); setLoading(false); })();
-    setOfflineQueueCount(getOfflineQueueCount());
-    const onOnline=()=>{ toast("Bumalik ang internet! Nagsi-sync..."); syncOfflineQueue(toast).then(()=>setOfflineQueueCount(getOfflineQueueCount())); };
-    window.addEventListener("online", onOnline);
-    const iv=setInterval(()=>setOfflineQueueCount(getOfflineQueueCount()),5000);
-    return ()=>{ window.removeEventListener("online", onOnline); clearInterval(iv); };
   },[]);
 
   // Cashier home screen (X Reading, Last 8 Items, low stock badge, etc.) all read from
@@ -1318,28 +1199,6 @@ export default function App() {
     if (adminTab !== "expenses") return;
     loadExpensesAdmin();
   },[adminTab, expensesAdminFrom, expensesAdminTo, selectedBranch]);
-
-  // ── LOAD WEEKLY SCHEDULES (on-demand, when admin opens Payroll — needed for late calc) ──
-  useEffect(()=>{
-    if (adminTab !== "payroll") return;
-    (async()=>{
-      const data = await sb("employee_schedules?select=*");
-      const map={};
-      (Array.isArray(data)?data:[]).forEach(s=>{ if(!map[s.emp_id])map[s.emp_id]={}; map[s.emp_id][s.day_of_week]={shift_start:s.shift_start?s.shift_start.slice(0,5):null,is_day_off:!!s.is_day_off}; });
-      setScheduleMap(map);
-    })();
-    loadOTApprovals();
-  },[adminTab]);
-
-  async function loadOTApprovals(){
-    const data = await sb("ot_approvals?select=*&order=created_at.desc&limit=20");
-    setOtApprovalsList(Array.isArray(data)?data:[]);
-    const allApproved = await sb("ot_approvals?select=*&status=eq.approved");
-    const map={};
-    (Array.isArray(allApproved)?allApproved:[]).forEach(o=>{ const k=`${o.emp_id}_${o.date_key}`; map[k]=(map[k]||0)+(parseFloat(o.ot_hours)||0); });
-    setOtApprovalsMap(map);
-  }
-
 
   // ── LOAD LOYALTY MEMBERS (on-demand, when admin opens the tab) ────────────
   const loadLoyaltyMembers = async () => {
@@ -1406,7 +1265,7 @@ export default function App() {
       // missing almost everyone.
       const EMP_CACHE_KEY = "limjoe_employees_cache_v1";
       if (Array.isArray(emps) && emps.length > 0) {
-        const mapped = emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false, shift_start:e.shift_start||"09:00" })).filter(e=>e.active);
+        const mapped = emps.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active);
         setEmployees(mapped);
         try { localStorage.setItem(EMP_CACHE_KEY, JSON.stringify(mapped)); } catch {}
       } else {
@@ -1417,7 +1276,7 @@ export default function App() {
           if (Array.isArray(retry) && retry.length > 0) retried = retry;
         }
         if (retried) {
-          const mapped = retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false, shift_start:e.shift_start||"09:00" })).filter(e=>e.active);
+          const mapped = retried.map(e=>({ id:e.id, name:e.name, pin:e.pin, role:e.role, emoji:e.emoji||"👤", branchId:e.branch_id, active:e.active!==false })).filter(e=>e.active);
           setEmployees(mapped);
           try { localStorage.setItem(EMP_CACHE_KEY, JSON.stringify(mapped)); } catch {}
         } else {
@@ -1500,8 +1359,8 @@ export default function App() {
     const emp=employees.find(e=>e.pin===pin);
     if (!emp) { const a=loginAttempts+1; setLoginAttempts(a); setPinInput(""); if(a>=3){setLocked(true);setPinError("🔒 3 maling PIN! Locked ng 30 segundo.");setTimeout(()=>{setLocked(false);setLoginAttempts(0);setPinError("");},30000);}else setPinError(`Mali ang PIN. ${3-a} tries pa.`); return; }
     setLoginAttempts(0); setPinError(""); setPinInput("");
-    if (pinMode==="dtr-in") { const eb=findActiveBranchFor(emp.id); if(eb){setPinError(`${emp.name} naka-login pa sa ${eb.name}!`);return;} const nd={...dtrData}; const k=`${emp.id}_${currentBranch.id}_${todayStr()}`; if(!nd[k])nd[k]=[]; const tNow=nowStr(); nd[k].push({in:tNow,out:null,name:emp.name}); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:currentBranch.id,dtr_date:todayStr(),time_in:tNow}); toast(`🟢 TIME IN: ${emp.emoji} ${emp.name}`); setPunchConfirm({name:emp.name,action:"TIME IN",time:tNow}); setPinMode(""); return; }
-    if (pinMode==="dtr-out") { const ab=findActiveBranchFor(emp.id); if(!ab){setPinError(`${emp.name} hindi naka-time in!`);return;} const nd={...dtrData}; const k=`${emp.id}_${ab.id}_${todayStr()}`; const entry=nd[k][nd[k].length-1]; const tNow=nowStr(); entry.out=tNow; const tm=nd[k].filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:ab.id,dtr_date:todayStr(),time_in:entry.in,time_out:tNow}); toast(`🔴 TIME OUT: ${emp.emoji} ${emp.name} | Total: ${formatHrs(tm)}`); setPunchConfirm({name:emp.name,action:"TIME OUT",time:tNow}); setPinMode(""); return; }
+    if (pinMode==="dtr-in") { const eb=findActiveBranchFor(emp.id); if(eb){setPinError(`${emp.name} naka-login pa sa ${eb.name}!`);return;} const nd={...dtrData}; const k=`${emp.id}_${currentBranch.id}_${todayStr()}`; if(!nd[k])nd[k]=[]; nd[k].push({in:nowStr(),out:null,name:emp.name}); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:currentBranch.id,dtr_date:todayStr(),time_in:nowStr()}); toast(`🟢 TIME IN: ${emp.emoji} ${emp.name}`); setPinMode(""); return; }
+    if (pinMode==="dtr-out") { const ab=findActiveBranchFor(emp.id); if(!ab){setPinError(`${emp.name} hindi naka-time in!`);return;} const nd={...dtrData}; const k=`${emp.id}_${ab.id}_${todayStr()}`; const entry=nd[k][nd[k].length-1]; entry.out=nowStr(); const tm=nd[k].filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0); setDtrData(nd); await persist(DTR_KEY,nd); sb("dtr","POST",{employee_id:emp.id,employee_name:emp.name,branch_id:ab.id,dtr_date:todayStr(),time_in:entry.in,time_out:entry.out}); toast(`🔴 TIME OUT: ${emp.emoji} ${emp.name} | Total: ${formatHrs(tm)}`); setPinMode(""); return; }
     if (pinMode==="cashier-login") { if(ROLE_LEVEL[emp.role]>=3){setPinError("Admin/Owner — gamitin ang Admin Portal.");return;} if(emp.branchId&&emp.branchId!==currentBranch.id){setPinError(`${emp.name} ay nasa ${BRANCHES.find(b=>b.id===emp.branchId)?.name} lang.`);return;} setCurrentUser(emp); setCart([]); setActiveCat(activeCategories[0]?.key||"JUICE"); setDiscountType(null); setCashGiven(0); setPaymentMethod("cash"); setOrderType("instore"); setPosScreen("pos"); setEnv("cashier"); setPinMode(""); toast(`Welcome ${emp.emoji} ${emp.name}!`); auditLog("LOGIN", `${emp.name} logged in as ${emp.role}`, emp, currentBranch.id, currentBranch.name);
       // orderNum was previously a session-local counter that always restarted at 1001 on
       // every fresh page load — different devices/reloads throughout the same day would
@@ -1561,37 +1420,20 @@ export default function App() {
     setSalesData(ns); await persist(SALES_KEY,ns);
 
     let savedToCloud=false; let errMsg=null;
-    const orderPayload={ order_num:orderNum, branch_id:currentBranch.id, cashier_name:currentUser.name, payment_method:paymentMethod, subtotal, discount_type:discountType, discount_amt:discountAmt, total, cash_given:cashGiven||total, change_given:paymentMethod==="cash"?Math.max(0,change):0, order_date:dk, order_time:nowStr(), reference_number:isCashless?referenceNumber.trim():null, payment_proof_url:isCashless?paymentProofUrl:null, discount_id_photo_url:discountType?discountIdPhotoUrl:null, discount_customer_name:discountType?discountCustomerName.trim():null, discount_customer_id:discountType?discountCustomerID.trim():null };
     try {
-      const result=await sb("orders","POST",orderPayload);
+      const result=await sb("orders","POST",{ order_num:orderNum, branch_id:currentBranch.id, cashier_name:currentUser.name, payment_method:paymentMethod, subtotal, discount_type:discountType, discount_amt:discountAmt, total, cash_given:cashGiven||total, change_given:paymentMethod==="cash"?Math.max(0,change):0, order_date:dk, order_time:nowStr(), reference_number:isCashless?referenceNumber.trim():null, payment_proof_url:isCashless?paymentProofUrl:null, discount_id_photo_url:discountType?discountIdPhotoUrl:null, discount_customer_name:discountType?discountCustomerName.trim():null, discount_customer_id:discountType?discountCustomerID.trim():null });
       const sbOrder=result&&result[0];
       if (sbOrder?.id) {
-        const itemsPayload=itemsWithFinal.map(i=>({ order_id:sbOrder.id, item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 }));
-        const itemsResult=await sb("order_items","POST", itemsPayload);
+        const itemsResult=await sb("order_items","POST", itemsWithFinal.map(i=>({ order_id:sbOrder.id, item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
         if (itemsResult) {
           savedToCloud=true;
           // Inventory auto-deducts via the trg_deduct_inventory DB trigger on order_items —
           // no separate RPC call needed here (the old deduct_inventory_for_order RPC was
           // disabled at the DB level to fix a double-deduction bug; this line used to still
           // call it, which was harmless but dead weight — removed).
-        } else {
-          errMsg="order_items insert failed: "+lastSbError;
-          // Order row itself DID save, but items didn't — queue the items-only payload so
-          // syncOfflineQueue can retry just the items against the already-created order.
-          addToOfflineQueue({...orderPayload, __existingOrderId:sbOrder.id}, itemsWithFinal.map(i=>({ item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
-          toast("⚠️ Naka-queue lang ang order — hindi kumonekta. I-Sync Now kapag may internet.","err");
-        }
-      } else {
-        errMsg="orders insert failed: "+lastSbError;
-        // Genuine offline/failed save — queue the full order+items for later sync.
-        addToOfflineQueue(orderPayload, itemsWithFinal.map(i=>({ item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
-        toast("⚠️ Naka-queue lang ang order — hindi kumonekta. I-Sync Now kapag may internet.","err");
-      }
-    } catch(e) {
-      errMsg="Exception: "+e.message;
-      addToOfflineQueue(orderPayload, itemsWithFinal.map(i=>({ item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
-      toast("⚠️ Naka-queue lang ang order — hindi kumonekta. I-Sync Now kapag may internet.","err");
-    }
+        } else errMsg="order_items insert failed: "+lastSbError;
+      } else errMsg="orders insert failed: "+lastSbError;
+    } catch(e) { errMsg="Exception: "+e.message; }
     setDebugError(errMsg);
     // Loyalty: credit rebate using ONLY the computed order total — never a typed-in amount.
     if (loyaltyCustomer) {
@@ -1987,18 +1829,6 @@ export default function App() {
       {showDelivery&&<DeliveryModal onClose={()=>setShowDelivery(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showSpoilage&&<SpoilageModal onClose={()=>setShowSpoilage(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
       {showBorrowed&&<BorrowedModal onClose={()=>setShowBorrowed(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch}/>}
-      {punchConfirm&&(
-        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:99999,padding:20 }} onClick={e=>{if(e.target===e.currentTarget)setPunchConfirm(null);}}>
-          <div style={{ background:"#fff",borderRadius:16,padding:"28px 24px",textAlign:"center",maxWidth:320,width:"100%",boxShadow:"0 10px 40px rgba(0,0,0,.3)" }}>
-            <div style={{ fontSize:48,marginBottom:6 }}>✅</div>
-            <div style={{ fontSize:13,color:"#78716c",fontWeight:700,marginBottom:4 }}>{punchConfirm.name}</div>
-            <div style={{ fontSize:22,fontWeight:900,color:punchConfirm.action==="TIME IN"?"#16a34a":"#dc2626",marginBottom:10 }}>{punchConfirm.action}</div>
-            <div style={{ fontSize:28,fontWeight:900,color:"#1c1917",fontVariantNumeric:"tabular-nums" }}>{punchConfirm.time}</div>
-            <div style={{ marginTop:10,fontSize:11,color:"#16a34a",fontWeight:700 }}>✔ Naka-save na sa system</div>
-            <button onClick={()=>setPunchConfirm(null)} style={{ marginTop:18,width:"100%",padding:11,background:"#1c1917",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer" }}>OK</button>
-          </div>
-        </div>
-      )}
       {showBranchStock&&<BranchStockModal onClose={()=>setShowBranchStock(false)} toast={toast} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"}/>}
       {showInventorySummary&&<InventorySummaryModal onClose={()=>setShowInventorySummary(false)} toast={toast} currentUser={currentUser} currentBranch={currentBranch} userRole={currentUser?.role||"cashier"} branchId={env==="admin"?(bFilter||currentBranch.id):currentBranch.id}/>}
       {showTxnDrill&&<TransactionDrillModal date={showTxnDrill.date} type={showTxnDrill.type} filterKey={showTxnDrill.filterKey} label={showTxnDrill.label} branchId={bFilter} onClose={()=>setShowTxnDrill(null)}/>}
@@ -2076,12 +1906,7 @@ export default function App() {
         {notif&&<Toast notif={notif}/>} {modals}
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
           <div><div style={{ fontSize:17,fontWeight:900,color:C.primary }}>LIMJOE · {currentBranch.name}</div><div style={{ fontSize:11,color:C.text3 }}>{currentUser?.emoji} {currentUser?.name} · {currentUser?.role}</div></div>
-          <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-            {offlineQueueCount>0&&(
-              <button onClick={async()=>{await syncOfflineQueue(toast);setOfflineQueueCount(getOfflineQueueCount());}} style={{ padding:"7px 12px",background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:8,color:C.warning,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>⚠️ {offlineQueueCount} naka-queue — I-Sync Now</button>
-            )}
-            <button onClick={()=>{setCurrentUser(null);setEnv("home");setPosScreen("main");}} style={{ padding:"7px 14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:12,cursor:"pointer" }}>🚪 Logout</button>
-          </div>
+          <button onClick={()=>{setCurrentUser(null);setEnv("home");setPosScreen("main");}} style={{ padding:"7px 14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:12,cursor:"pointer" }}>🚪 Logout</button>
         </div>
 
         <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow,marginBottom:12 }}>
@@ -2443,38 +2268,17 @@ export default function App() {
     const todayOrders=getOrders(todayStr(),bFilter); const todaySum=calcSum(todayOrders); const todayExp=getExps(todayStr(),bFilter).reduce((s,e)=>s+parseFloat(e.amount),0);
     const monthRows=(()=>{ const[y,m]=reportMonth.split("-"); const days=new Date(parseInt(y),parseInt(m),0).getDate(); const rows=[]; for(let d=1;d<=days;d++){const dk=`${reportMonth}-${String(d).padStart(2,"0")}`; const ords=getOrders(dk,bFilter).filter(o=>!o.voided); const exps=getExps(dk,bFilter); const cohKey=bFilter?`${bFilter}_${dk}`:null; const cohVal=cohKey?parseFloat(cashOnHand[cohKey]??NaN):NaN; if(!ords.length&&!exps.length&&isNaN(cohVal))continue; const gross=ords.reduce((s,o)=>s+o.total,0); const exp=exps.reduce((s,e)=>s+parseFloat(e.amount),0); const byMethod={}; PAYMENT_METHODS.forEach(p=>{byMethod[p.key]=0;}); ords.forEach(o=>{if(byMethod[o.paymentMethod]!==undefined)byMethod[o.paymentMethod]+=o.total;}); const nonCash=(byMethod.grabfood||0)+(byMethod.foodpanda||0)+(byMethod.gcash||0)+(byMethod.maya||0)+(byMethod.gotyme||0)+(byMethod.cards||0)+(byMethod.sm||0); const discAmt=ords.reduce((s,o)=>s+(o.discountAmt||0),0); const net=gross-nonCash-discAmt-exp; const vatExempt=ords.filter(o=>o.discountType==="SNR"||o.discountType==="PWD").reduce((s,o)=>s+o.total,0); const vatableSales=gross-vatExempt; const vatAmt=Math.round(vatableSales*12/112*100)/100; let remarks="—"; if(!isNaN(cohVal)){const diff=Math.round((cohVal-net)*100)/100;remarks=Math.abs(diff)<1?"MATCHED":diff>0?`OVER ₱${diff.toFixed(2)}`:`SHORT ₱${Math.abs(diff).toFixed(2)}`;} rows.push({date:dk,gross,...byMethod,discAmt,vatAmt,expenses:exp,net,cashOnHand:isNaN(cohVal)?null:cohVal,remarks,txns:ords.length}); } return rows; })();
     const payrollRows=employees.map(emp=>{
-      let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0,totalLateMins=0,lateDeduction=0;
-      const workedDates=[]; // dates the employee actually worked, for the Lates Summary drill-down
+      let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0;
       const start=new Date(payrollFrom),end=new Date(payrollTo);
-      const dailyRate=getDailyRate(emp,payrollFrom);
+      const dailyRate=getDailyRate(emp);
       const hourlyRate=dailyRate/8; // Daily Rate ÷ 8 = hourly rate, used for undertime deduction
-      // Late deduction policy: 30-min block rate = hourlyRate/2. Minimum 30 mins deducted for
-      // ANY lateness (even 1 min late), rounding UP to the next 30-min block beyond that
-      // (e.g. 35 mins late = 2 blocks = 1 hour deducted).
-      const halfHourRate=hourlyRate/2;
-      const empSchedule=scheduleMap[emp.id]||{};
       for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
         const dk=d.toISOString().split("T")[0];
-        const dow=d.getDay();
-        const daySched=empSchedule[dow];
         let dayMins=0;
-        BRANCHES.forEach(b=>{
-          const logs=getEmpDTR(emp.id,b.id,dk);
-          dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);
-          if(logs.length>0 && !(daySched&&daySched.is_day_off)){
-            const shiftStart=(daySched&&daySched.shift_start)?daySched.shift_start:(emp.shift_start||"09:00");
-            const dayLateMins=Math.max(0,calcMins(shiftStart,logs[0].in));
-            if(dayLateMins>0){
-              totalLateMins+=dayLateMins;
-              lateDeduction+=Math.ceil(dayLateMins/30)*halfHourRate;
-            }
-          }
-        });
+        BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});
         if(dayMins>0){
-          workDays++;totalMins+=dayMins;workedDates.push(dk);
-          // OT no longer auto-derived from hours over 8/day — now only counts if explicitly
-          // logged/approved via the OT Approval Requests system (matches Oniisan's policy).
-          otMins+=(otApprovalsMap[`${emp.id}_${dk}`]||0)*60;
+          workDays++;totalMins+=dayMins;
+          if(dayMins>480)otMins+=(dayMins-480); // beyond 8 hrs/day counts as OT
           if(dayMins<480)undertimeMins+=(480-dayMins); // below 8 hrs/day counts as undertime
           const hol=holidays.find(h=>h.date===dk);
           if(hol){
@@ -2482,22 +2286,21 @@ export default function App() {
           }
         }
       }
-      const otRate=getOTRate(emp,payrollFrom);
+      const otRate=getOTRate(emp);
       const otHours=Math.round((otMins/60)*100)/100;
       const undertimeHours=Math.round((undertimeMins/60)*100)/100;
       const basicPay=workDays*dailyRate;
       const otPay=Math.round(otHours*otRate*100)/100;
       const undertimeDed=Math.round(undertimeHours*hourlyRate*100)/100;
-      lateDeduction=Math.round(lateDeduction*100)/100;
-      const grossPay=basicPay+otPay+holidayPay-undertimeDed-lateDeduction;
+      const grossPay=basicPay+otPay+holidayPay-undertimeDed;
       // Statutory deductions (SSS/PhilHealth/Pag-IBIG) apply only on the 11-25 cutoff
       // (payrollTo day-of-month === 25) — not the 26-10 cutoff, and never for an employee
       // who had zero days worked this period (no income to deduct against).
       const isDeductionPeriod=new Date(payrollTo).getDate()===25;
       const statDed=(isDeductionPeriod&&workDays>0)?PAYROLL_DEDUCTIONS:0;
-      const totalDed=statDed+undertimeDed+lateDeduction;
-      const netPay=grossPay-statDed; // undertime + late already subtracted from grossPay above
-      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,totalLateMins,lateDeduction,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay,workedDates};
+      const totalDed=statDed+undertimeDed;
+      const netPay=grossPay-statDed; // undertime already subtracted from grossPay above
+      return{...emp,workDays,totalMins,totalHrs:formatHrs(totalMins),dailyRate,hourlyRate,otHours,undertimeHours,undertimeDed,holidayPay,basicPay,otPay,grossPay,statDed,totalDed,netPay};
     });
 
     const TABS=[{key:"dashboard",label:"📊 Dashboard"},{key:"xreport",label:"📋 X Reading"},{key:"zreport",label:"🔒 Z Reading"},{key:"saleslog",label:"🧾 Sales Log"},{key:"expenses",label:"💸 Expenses"},{key:"monthly",label:"📅 Monthly"},{key:"channels",label:"💳 Channels"},{key:"deposit",label:"🏦 Deposit"},{key:"dtr",label:"🕐 DTR"},{key:"payroll",label:"💰 Payroll"},{key:"holidays",label:"🎌 Holidays"},{key:"loyalty",label:"🎉 Loyalty"},{key:"employees",label:"👥 Employees"},{key:"products",label:"🛍️ Products"},{key:"inventory",label:"📦 Inventory"},{key:"office",label:"🏢 Office"},{key:"audit",label:"📝 Audit Trail"}];
@@ -3195,18 +2998,7 @@ export default function App() {
             </div>);
           })()}
 
-          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div>
-            {(()=>{
-              const periods=[];
-              for(let y=2025;y<=2027;y++)for(let m=1;m<=12;m++){getCutoffPeriods(y,m).forEach(p=>periods.push(p));}
-              return (
-                <select value={`${payrollFrom}_${payrollTo}`} onChange={e=>{const[f,t]=e.target.value.split("_");setPayrollFrom(f);setPayrollTo(t);}}
-                  style={{ padding:"7px 12px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:12,fontWeight:700,minWidth:220 }}>
-                  {periods.map(p=><option key={`${p.start}_${p.end}`} value={`${p.start}_${p.end}`}>{p.label}</option>)}
-                </select>
-              );
-            })()}
-            </div>
+          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
               <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions:</b> SSS ₱450 + PhilHealth ₱200 + Pag-IBIG ₱200 = ₱850 (cutoffs ending 25th/30th)
             </div>
@@ -3229,241 +3021,64 @@ export default function App() {
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>OT HOURS</div>
                   <input type="number" min="0" step="0.5" value={manualPayrollOT} onChange={e=>setManualPayrollOT(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
+                <div style={{ width:100 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>UNDERTIME HRS</div>
+                  <input type="number" min="0" step="0.5" value={manualPayrollUndertime} onChange={e=>setManualPayrollUndertime(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
                 <div style={{ width:110 }}>
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>HOLIDAY PAY (₱)</div>
                   <input type="number" min="0" value={manualPayrollHoliday} onChange={e=>setManualPayrollHoliday(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
-                <div style={{ width:150 }}>
-                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION LABEL</div>
-                  <input value={manualPayrollCustomLabel} onChange={e=>setManualPayrollCustomLabel(e.target.value)} placeholder="hal. Shortage, Overpayment" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
-                </div>
-                <div style={{ width:110 }}>
-                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION (₱)</div>
-                  <input type="number" min="0" step="0.01" value={manualPayrollCustomAmt} onChange={e=>setManualPayrollCustomAmt(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
-                </div>
+                <label style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 11px",background:manualPayrollBankFee?C.warningBg:"white",border:`1.5px solid ${manualPayrollBankFee?C.warning:C.border}`,borderRadius:8,cursor:"pointer",whiteSpace:"nowrap" }}>
+                  <input type="checkbox" checked={manualPayrollBankFee} onChange={e=>setManualPayrollBankFee(e.target.checked)} style={{ width:16,height:16,cursor:"pointer" }}/>
+                  <span style={{ fontSize:11,fontWeight:700,color:manualPayrollBankFee?C.warning:C.text2 }}>🏦 Bank Fee (₱{BANK_SERVICE_FEE})</span>
+                </label>
                 <button onClick={()=>{
                   const emp=employees.find(e=>String(e.id)===String(manualPayrollEmp));
                   const days=parseFloat(manualPayrollDays)||0;
                   const otHrs=parseFloat(manualPayrollOT)||0;
+                  const underHrs=parseFloat(manualPayrollUndertime)||0;
                   const holPay=parseFloat(manualPayrollHoliday)||0;
                   if(!emp){toast("Pumili ng employee!","err");return;}
                   if(days<=0){toast("Ilagay ang days worked!","err");return;}
-                  const dailyRate=getDailyRate(emp,payrollFrom);
-                  const otRate=getOTRate(emp,payrollFrom);
+                  const dailyRate=getDailyRate(emp);
+                  const otRate=getOTRate(emp);
+                  const hourlyRate=dailyRate/8;
                   const basicPay=days*dailyRate;
                   const otPay=Math.round(otHrs*otRate*100)/100;
-                  const grossPay=basicPay+otPay+holPay;
+                  const undertimeDed=Math.round(underHrs*hourlyRate*100)/100;
+                  const grossPay=basicPay+otPay+holPay-undertimeDed;
                   // Manual Entry is meant for supplemental/corrective entries (e.g. an employee
                   // whose DTR wasn't logged) — statutory deductions (SSS/PhilHealth/Pag-IBIG) are
                   // already applied once in the main DTR-computed payroll table for this cutoff,
                   // so Manual Entry never re-deducts them (would double-deduct the same employee).
+                  // Only the optional Bank Fee checkbox applies here.
                   const statDed=0;
-                  const customLabel=manualPayrollCustomLabel.trim();
-                  const customAmt=parseFloat(manualPayrollCustomAmt)||0;
-                  const totalDed=statDed+customAmt;
+                  const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
+                  const totalDed=statDed+bankFee;
                   const netPay=grossPay-totalDed;
-                  savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:days,total_hours:days*8,ot_hours:otHrs,basic_pay:basicPay,ot_pay:otPay,holiday_pay:holPay,gross_pay:grossPay,statutory_deduction:statDed,custom_deduction_label:customLabel||null,custom_deduction_amount:customAmt,total_deduction:totalDed,net_pay:netPay,source:"manual",generated_by:currentUser?.name||"Admin"});
-                  printPayslip({name:emp.name,start:payrollFrom,end:payrollTo,dailyRate,daysWorked:days,otHours:otHrs,otPay,holidayPay:holPay,basicPay,grossPay,statutoryDed:statDed,customDedLabel:customLabel,customDedAmt:customAmt,totalDed,netPay});
-                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollHoliday("");setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
+                  printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}${undertimeDed>0?`<div class="row"><span>Undertime (${underHrs} hrs)</span><span>-₱${undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${statDed>0?`<div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div>`:""}${bankFee>0?`<div class="row"><span>Bank Service Fee</span><span>₱${bankFee}.00</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
+                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
             </div>
-
-            <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
-              <div style={{ fontWeight:800,fontSize:13,color:C.text,marginBottom:10 }}>OT Approval Requests</div>
-              {otApprovalsList.length===0 ? <div style={{ textAlign:"center",padding:20,color:C.text3,fontSize:12 }}>No OT requests yet</div> : (
-                <div style={{ overflow:"auto" }}>
-                  <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
-                    <thead><tr style={{ borderBottom:`1px solid ${C.border}` }}>
-                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Employee</th>
-                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Date</th>
-                      <th style={{ padding:"6px 8px",textAlign:"right" }}>OT Hrs</th>
-                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Reason</th>
-                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Status</th>
-                      <th style={{ padding:"6px 8px" }}>Action</th>
-                    </tr></thead>
-                    <tbody>
-                      {otApprovalsList.map(o=>(
-                        <tr key={o.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                          <td style={{ padding:"6px 8px",fontWeight:700 }}>{o.emp_name||"—"}</td>
-                          <td style={{ padding:"6px 8px" }}>{o.date_key}</td>
-                          <td style={{ padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.warning }}>{o.ot_hours} hrs</td>
-                          <td style={{ padding:"6px 8px",fontSize:11 }}>{o.reason||"—"}</td>
-                          <td style={{ padding:"6px 8px" }}>
-                            <span style={{ fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:10,background:o.status==="approved"?C.successBg:o.status==="rejected"?C.dangerBg:C.warningBg,color:o.status==="approved"?C.success:o.status==="rejected"?C.danger:C.warning }}>{o.status.toUpperCase()}</span>
-                          </td>
-                          <td style={{ padding:"6px 8px" }}>
-                            {ROLE_LEVEL[currentUser?.role||"cashier"]>=2 && o.status==="pending" ? (
-                              <div style={{ display:"flex",gap:4 }}>
-                                <button onClick={async()=>{await sb(`ot_approvals?id=eq.${o.id}`,"PATCH",{status:"approved",approved_by:currentUser?.name});toast("✅ OT Approved!");loadOTApprovals();}} style={{ padding:"3px 8px",background:C.success,color:"#fff",border:"none",borderRadius:4,fontSize:10,cursor:"pointer" }}>✅ Approve</button>
-                                <button onClick={async()=>{await sb(`ot_approvals?id=eq.${o.id}`,"PATCH",{status:"rejected",approved_by:currentUser?.name});toast("❌ OT Rejected.");loadOTApprovals();}} style={{ padding:"3px 8px",background:C.danger,color:"#fff",border:"none",borderRadius:4,fontSize:10,cursor:"pointer" }}>❌ Reject</button>
-                              </div>
-                            ) : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            {payrollRows.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
+                <span style={{ fontSize:22 }}>{emp.emoji}</span>
+                <div style={{ flex:1,minWidth:120 }}>
+                  <div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div>
+                  <div style={{ fontSize:11,color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()} · ₱{emp.dailyRate}/day</div>
                 </div>
-              )}
-              {ROLE_LEVEL[currentUser?.role||"cashier"]>=2 ? (
-                <div style={{ marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}` }}>
-                  <div style={{ fontSize:11,fontWeight:800,color:C.text3,marginBottom:8 }}>+ REQUEST / LOG OT</div>
-                  <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                    <select id="otEmpSel" style={{ flex:1,minWidth:120,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}>
-                      {employees.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
-                    <input id="otDate" type="date" defaultValue={todayStr()} style={{ width:150,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
-                    <input id="otHours" type="number" placeholder="OT hrs" step="0.5" min="0.5" max="8" style={{ width:90,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
-                    <input id="otReason" placeholder="Reason for OT" style={{ flex:1,minWidth:150,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
-                    <button onClick={async()=>{
-                      const empId=document.getElementById("otEmpSel").value;
-                      const dateKey=document.getElementById("otDate").value;
-                      const hrs=parseFloat(document.getElementById("otHours").value)||0;
-                      const reason=document.getElementById("otReason").value.trim();
-                      const emp=employees.find(e=>String(e.id)===String(empId));
-                      if(!hrs){toast("Enter OT hours.","err");return;}
-                      if(!reason){toast("Enter reason for OT.","err");return;}
-                      await sb("ot_approvals","POST",[{emp_id:empId,emp_name:emp?.name,date_key:dateKey,ot_hours:hrs,reason,status:"approved",approved_by:currentUser?.name}]);
-                      toast("OT approved and recorded!");
-                      document.getElementById("otHours").value="";document.getElementById("otReason").value="";
-                      loadOTApprovals();
-                    }} style={{ padding:"8px 14px",background:C.success,border:"none",borderRadius:8,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer" }}>Submit & Approve</button>
-                  </div>
-                </div>
-              ) : <div style={{ fontSize:11,color:C.text3,marginTop:8 }}>Manager, Admin o Owner lang ang puwedeng mag-approve ng OT requests.</div>}
-            </div>
-
-            <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:10 }}>
-                <div style={{ fontWeight:800,fontSize:13,color:C.text }}>⏰ Lates Summary — {payrollFrom} to {payrollTo} (naka-rank, pinaka-maraming late sa itaas)</div>
-                <button onClick={()=>{
-                  const sorted=[...payrollRows].sort((a,b)=>b.totalLateMins-a.totalLateMins);
-                  const rows=[["#","Employee","Role","Days Worked","Total Late (mins)"]];
-                  sorted.forEach((s,i)=>rows.push([i+1,s.name,s.role,s.workDays,s.totalLateMins]));
-                  const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
-                  const blob=new Blob([csv],{type:"text/csv"});
-                  const a=document.createElement("a");
-                  a.href=URL.createObjectURL(blob);a.download=`lates-summary-${payrollFrom}-to-${payrollTo}.csv`;a.click();
-                }} style={{ padding:"7px 14px",background:"white",border:`1px solid ${C.border}`,borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer" }}>📥 Download CSV</button>
+                <div style={{ textAlign:"center",minWidth:60 }}><div style={{ fontWeight:900,fontSize:16,color:C.info }}>{emp.workDays}</div><div style={{ fontSize:9,color:C.text3 }}>Days</div></div>
+                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.otHours>0?C.warning:C.text3 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>OT Hrs</div></div>
+                <div style={{ textAlign:"center",minWidth:70 }}><div style={{ fontWeight:900,fontSize:14,color:emp.undertimeHours>0?C.danger:C.text3 }}>{emp.undertimeHours>0?`${emp.undertimeHours}h`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Undertime</div></div>
+                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.text }}>₱{emp.basicPay.toFixed(0)}</div><div style={{ fontSize:9,color:C.text3 }}>Basic</div></div>
+                <div style={{ textAlign:"center",minWidth:80 }}><div style={{ fontWeight:900,fontSize:14,color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(0)}`:"—"}</div><div style={{ fontSize:9,color:C.text3 }}>Deductions</div></div>
+                <div style={{ textAlign:"center",minWidth:90 }}><div style={{ fontWeight:900,fontSize:18,color:C.success }}>₱{emp.netPay.toFixed(2)}</div><div style={{ fontSize:9,color:C.text3 }}>NET PAY</div></div>
+                <button onClick={()=>printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`)} style={{ padding:"8px 14px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:8,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer" }}>📄 Payslip</button>
               </div>
-              {(()=>{
-                const sorted=[...payrollRows].sort((a,b)=>b.totalLateMins-a.totalLateMins);
-                const anyLate=sorted.some(s=>s.totalLateMins>0);
-                if(!anyLate)return <div style={{ textAlign:"center",padding:16,color:C.text3,fontSize:12 }}>🎉 Walang na-late sa buong period na ito.</div>;
-                return (
-                  <div style={{ overflow:"auto" }}>
-                    <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
-                      <thead><tr style={{ borderBottom:`1px solid ${C.border}` }}>
-                        <th style={{ padding:"6px 8px",textAlign:"left" }}>#</th>
-                        <th style={{ padding:"6px 8px",textAlign:"left" }}>Employee</th>
-                        <th style={{ padding:"6px 8px",textAlign:"left" }}>Role</th>
-                        <th style={{ padding:"6px 8px",textAlign:"right" }}>Days Worked</th>
-                        <th style={{ padding:"6px 8px",textAlign:"right" }}>Total Late (mins)</th>
-                      </tr></thead>
-                      <tbody>
-                        {sorted.map((s,i)=>(
-                          <tr key={s.id} style={{ opacity:s.totalLateMins>0?1:0.5,borderBottom:`1px solid ${C.border}` }}>
-                            <td style={{ padding:"6px 8px" }}>{i+1}</td>
-                            <td style={{ padding:"6px 8px",fontWeight:700 }}>{s.name}</td>
-                            <td style={{ padding:"6px 8px",fontSize:11,color:C.text3,textTransform:"uppercase" }}>{s.role}</td>
-                            <td style={{ padding:"6px 8px",textAlign:"right" }}>
-                              <button onClick={()=>setDaysWorkedModal({name:s.name,dates:s.workedDates})} style={{ background:"none",border:"none",color:C.info,fontWeight:800,textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0 }}>{s.workDays}</button>
-                            </td>
-                            <td style={{ padding:"6px 8px",textAlign:"right",fontWeight:900,color:s.totalLateMins>0?C.danger:C.text3 }}>{s.totalLateMins}{s.totalLateMins>0?` (${(s.totalLateMins/60).toFixed(1)}h)`:""}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {daysWorkedModal&&(
-              <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5000,padding:16 }} onClick={e=>{if(e.target===e.currentTarget)setDaysWorkedModal(null);}}>
-                <div style={{ background:"white",borderRadius:16,width:"min(360px,95vw)",maxHeight:"75vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)" }}>
-                  <div style={{ padding:"16px 20px",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:"white",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                    <div>
-                      <div style={{ fontWeight:900,fontSize:15 }}>📅 Days Worked</div>
-                      <div style={{ fontSize:12,color:C.text3 }}>{daysWorkedModal.name} · {daysWorkedModal.dates.length} araw</div>
-                    </div>
-                    <button onClick={()=>setDaysWorkedModal(null)} style={{ border:"none",background:C.bg2,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16 }}>✕</button>
-                  </div>
-                  <div style={{ padding:"12px 20px" }}>
-                    {daysWorkedModal.dates.map(dk=>(
-                      <div key={dk} style={{ padding:"7px 0",borderBottom:`1px solid ${C.bg2}`,fontSize:13,fontWeight:600 }}>{new Date(dk+"T12:00:00").toLocaleDateString("en-PH",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}</div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div style={{ display:"flex",justifyContent:"flex-end",marginBottom:10 }}>
-              <button onClick={async()=>{
-                if(!payrollRows.length){toast("Walang payroll na na-compute.","err");return;}
-                setBulkPayrollSaving(true);
-                let ok=0,fail=0;
-                for(const emp of payrollRows){
-                  const success=await savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:emp.workDays,total_hours:parseFloat(emp.totalHrs)||0,ot_hours:emp.otHours,basic_pay:emp.basicPay,ot_pay:emp.otPay,holiday_pay:emp.holidayPay,gross_pay:emp.grossPay,statutory_deduction:emp.statDed,custom_deduction_label:emp.totalLateMins>0?`Late (${emp.totalLateMins}m)`:null,custom_deduction_amount:emp.lateDeduction+emp.undertimeDed,total_deduction:emp.totalDed,net_pay:emp.netPay,source:"auto",generated_by:currentUser?.name||"Admin"});
-                  if(success)ok++;else fail++;
-                }
-                setBulkPayrollSaving(false);
-                if(fail===0)toast(`✅ Na-save ang payroll ng ${ok} empleyado!`);
-                else toast(`⚠️ ${ok} na-save, ${fail} nabigo.`,"err");
-              }} disabled={bulkPayrollSaving||!payrollRows.length} style={{ padding:"9px 16px",background:bulkPayrollSaving?C.bg3:C.success,color:"white",border:"none",borderRadius:8,fontWeight:800,fontSize:12,cursor:bulkPayrollSaving?"not-allowed":"pointer" }}>{bulkPayrollSaving?"Sinasave...":"💾 I-save ang Lahat ng Payroll Records"}</button>
-            </div>
-            <div style={{ background:"white",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow,overflow:"auto" }}>
-              <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:900 }}>
-                <thead>
-                  <tr style={{ background:C.bg2,borderBottom:`2px solid ${C.border}` }}>
-                    <th style={{ padding:"10px 12px",textAlign:"left" }}>Employee</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Days</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Hrs</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>OT Hrs</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Late</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Basic</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>OT Pay</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Holiday</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Gross</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>Deductions</th>
-                    <th style={{ padding:"10px 8px",textAlign:"right" }}>NET PAY</th>
-                    <th style={{ padding:"10px 8px" }}>Payslip</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payrollRows.map(emp=>(
-                    <tr key={emp.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                      <td style={{ padding:"10px 12px",fontWeight:800 }}>{emp.emoji} {emp.name}<div style={{ fontSize:10,color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()} · ₱{emp.dailyRate}/day</div></td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:800,color:C.info }}>{emp.workDays}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right" }}>{emp.totalHrs}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.otHours>0?C.warning:C.text3,fontWeight:emp.otHours>0?700:400 }}>{emp.otHours>0?`${emp.otHours}h`:"—"}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.totalLateMins>0?C.danger:C.text3,fontWeight:emp.totalLateMins>0?700:400 }}>{emp.totalLateMins>0?`${emp.totalLateMins}m`:"—"}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right" }}>₱{emp.basicPay.toFixed(2)}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.otPay>0?C.warning:C.text3 }}>{emp.otPay>0?`₱${emp.otPay.toFixed(2)}`:"—"}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:emp.holidayPay>0?C.info:C.text3 }}>{emp.holidayPay>0?`₱${emp.holidayPay.toFixed(2)}`:"—"}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:800 }}>₱{emp.grossPay.toFixed(2)}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(2)}`:"—"}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:900,color:C.success,fontSize:14 }}>₱{emp.netPay.toFixed(2)}</td>
-                      <td style={{ padding:"10px 8px" }}>
-                        <button onClick={()=>{const lateLabel=emp.totalLateMins>0?`Late (${emp.totalLateMins}m)`:null;const lateAmt=emp.lateDeduction+emp.undertimeDed;savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:emp.workDays,total_hours:parseFloat(emp.totalHrs)||0,ot_hours:emp.otHours,basic_pay:emp.basicPay,ot_pay:emp.otPay,holiday_pay:emp.holidayPay,gross_pay:emp.grossPay,statutory_deduction:emp.statDed,custom_deduction_label:lateLabel,custom_deduction_amount:lateAmt,total_deduction:emp.totalDed,net_pay:emp.netPay,source:"auto",generated_by:currentUser?.name||"Admin"});printPayslip({name:emp.name,start:payrollFrom,end:payrollTo,dailyRate:emp.dailyRate,daysWorked:emp.workDays,otHours:emp.otHours,otPay:emp.otPay,holidayPay:emp.holidayPay,basicPay:emp.basicPay,grossPay:emp.grossPay,statutoryDed:emp.statDed,customDedLabel:lateLabel,customDedAmt:lateAmt,totalDed:emp.totalDed,netPay:emp.netPay});}} style={{ padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:7,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Payslip</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {payrollRows.length===0&&(<tr><td colSpan={12} style={{ padding:20,textAlign:"center",color:C.text3 }}>Walang employees</td></tr>)}
-                </tbody>
-                {payrollRows.length>0&&(
-                  <tfoot>
-                    <tr style={{ background:C.bg2,fontWeight:900,borderTop:`2px solid ${C.border}` }}>
-                      <td colSpan={8} style={{ padding:"10px 12px" }}>TOTAL</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right" }}>₱{payrollRows.reduce((s,e)=>s+e.grossPay,0).toFixed(2)}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:C.danger }}>-₱{payrollRows.reduce((s,e)=>s+e.totalDed,0).toFixed(2)}</td>
-                      <td style={{ padding:"10px 8px",textAlign:"right",color:C.success,fontSize:14 }}>₱{payrollRows.reduce((s,e)=>s+e.netPay,0).toFixed(2)}</td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+            </div>))}
+            {payrollRows.length===0&&<div style={EM}>Walang employees</div>}
           </div>)}
 
           {adminTab==="holidays"&&(<div>
@@ -3578,8 +3193,7 @@ export default function App() {
               </>);
             })()}
           </div>)}
-          {adminTab==="employees"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={PT}>👥 Employee Management</div><button onClick={()=>setShowAddEmp(s=>!s)} style={{ padding:"8px 16px",background:showAddEmp?C.bg3:C.primary,border:`1px solid ${showAddEmp?C.border:C.primary}`,borderRadius:8,color:showAddEmp?C.text2:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddEmp?"✕ Cancel":"+ Add Employee"}</button></div>{showAddEmp&&(<div style={{ background:"white",borderRadius:12,padding:"16px",marginBottom:16,border:`2px solid ${C.primary}33`,boxShadow:C.shadow }}><div style={{ display:"flex",gap:8,marginBottom:8,flexWrap:"wrap" }}><input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="Pangalan" style={{ flex:2,minWidth:140,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}/><input value={newEmpPin} onChange={e=>setNewEmpPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="4-digit PIN" maxLength={4} style={{ flex:1,minWidth:100,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none",fontFamily:"monospace",letterSpacing:2 }}/></div><div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}><select value={newEmpRole} onChange={e=>setNewEmpRole(e.target.value)} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select>{newEmpRole!=="admin"&&(<select value={newEmpBranch} onChange={e=>setNewEmpBranch(parseInt(e.target.value))} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>)}</div><button onClick={createEmployee} style={{ width:"100%",padding:"11px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:13,cursor:"pointer" }}>Save Employee</button></div>)}{employees.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:24 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:C.text3 }}><span style={{ color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</span>{emp.branchId?` · ${BRANCHES.find(b=>b.id===emp.branchId)?.name}`:" · All Branches"}</div></div><div style={{ background:C.bg3,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:18,fontWeight:900,color:C.warning,letterSpacing:4,border:`1px solid ${C.border}` }}>{emp.pin}</div>{emp.id!==currentUser?.id&&(<button onClick={()=>deactivateEmployee(emp)} style={{ padding:"7px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Deactivate</button>)}<button onClick={()=>setSchedEmp(emp)} style={{ padding:"7px 12px",background:"#eff6ff",border:"1px solid #2563eb",borderRadius:8,color:"#2563eb",fontWeight:700,fontSize:11,cursor:"pointer" }}>📅 Schedule</button></div></div>))}</div>)}
-          {schedEmp&&<WeeklyScheduleModal emp={schedEmp} onClose={()=>setSchedEmp(null)} toast={toast}/>}
+          {adminTab==="employees"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={PT}>👥 Employee Management</div><button onClick={()=>setShowAddEmp(s=>!s)} style={{ padding:"8px 16px",background:showAddEmp?C.bg3:C.primary,border:`1px solid ${showAddEmp?C.border:C.primary}`,borderRadius:8,color:showAddEmp?C.text2:"white",fontWeight:700,fontSize:12,cursor:"pointer" }}>{showAddEmp?"✕ Cancel":"+ Add Employee"}</button></div>{showAddEmp&&(<div style={{ background:"white",borderRadius:12,padding:"16px",marginBottom:16,border:`2px solid ${C.primary}33`,boxShadow:C.shadow }}><div style={{ display:"flex",gap:8,marginBottom:8,flexWrap:"wrap" }}><input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="Pangalan" style={{ flex:2,minWidth:140,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none" }}/><input value={newEmpPin} onChange={e=>setNewEmpPin(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="4-digit PIN" maxLength={4} style={{ flex:1,minWidth:100,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,outline:"none",fontFamily:"monospace",letterSpacing:2 }}/></div><div style={{ display:"flex",gap:8,marginBottom:12,flexWrap:"wrap" }}><select value={newEmpRole} onChange={e=>setNewEmpRole(e.target.value)} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}><option value="cashier">Cashier</option><option value="manager">Manager</option><option value="admin">Admin</option></select>{newEmpRole!=="admin"&&(<select value={newEmpBranch} onChange={e=>setNewEmpBranch(parseInt(e.target.value))} style={{ flex:1,minWidth:130,padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white" }}>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>)}</div><button onClick={createEmployee} style={{ width:"100%",padding:"11px",background:C.primary,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:13,cursor:"pointer" }}>Save Employee</button></div>)}{employees.map(emp=>(<div key={emp.id} style={{ background:"white",borderRadius:12,padding:"14px 16px",marginBottom:10,border:`1px solid ${C.border}`,boxShadow:C.shadow }}><div style={{ display:"flex",alignItems:"center",gap:10 }}><span style={{ fontSize:24 }}>{emp.emoji}</span><div style={{ flex:1 }}><div style={{ fontWeight:800,fontSize:14,color:C.text }}>{emp.name}</div><div style={{ fontSize:11,color:C.text3 }}><span style={{ color:ROLE_COLOR[emp.role],fontWeight:700 }}>{emp.role.toUpperCase()}</span>{emp.branchId?` · ${BRANCHES.find(b=>b.id===emp.branchId)?.name}`:" · All Branches"}</div></div><div style={{ background:C.bg3,borderRadius:8,padding:"6px 14px",fontFamily:"monospace",fontSize:18,fontWeight:900,color:C.warning,letterSpacing:4,border:`1px solid ${C.border}` }}>{emp.pin}</div>{emp.id!==currentUser?.id&&(<button onClick={()=>deactivateEmployee(emp)} style={{ padding:"7px 12px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:11,cursor:"pointer" }}>Deactivate</button>)}</div></div>))}</div>)}
 
         </div>
       </div>
@@ -3892,75 +3506,6 @@ const SPOILAGE_REASONS = [
   { key:"other", label:"❓ Iba pa" },
 ];
 // ─── OFFICE MANAGEMENT (expenses to suppliers + central stock receiving/distribution) ────
-// ─── WEEKLY SCHEDULE EDITOR (per employee, per day-of-week shift + day-off) ───
-const DOW_NAMES=["Linggo","Lunes","Martes","Miyerkules","Huwebes","Biyernes","Sabado"];
-function WeeklyScheduleModal({ emp, onClose, toast }) {
-  const [rows, setRows] = useState(Array.from({length:7},(_,dow)=>({dow, shift_start:emp.shift_start||"09:00", is_day_off:false})));
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(()=>{
-    (async()=>{
-      const data = await sb(`employee_schedules?emp_id=eq.${emp.id}&select=*`);
-      if (Array.isArray(data) && data.length>0) {
-        setRows(prev=>prev.map(r=>{
-          const found=data.find(d=>d.day_of_week===r.dow);
-          return found ? { dow:r.dow, shift_start: found.shift_start?found.shift_start.slice(0,5):(emp.shift_start||"09:00"), is_day_off: !!found.is_day_off } : r;
-        }));
-      }
-      setLoading(false);
-    })();
-  },[]);
-
-  async function saveAll(){
-    setSaving(true);
-    let ok=0, fail=0;
-    for (const r of rows) {
-      const result = await sb(`employee_schedules?on_conflict=emp_id,day_of_week`,"POST",[{
-        emp_id: emp.id, emp_name: emp.name, day_of_week: r.dow,
-        shift_start: r.is_day_off ? null : r.shift_start,
-        is_day_off: r.is_day_off,
-      }],{ Prefer: "resolution=merge-duplicates,return=minimal" });
-      if (result!==null) ok++; else fail++;
-    }
-    setSaving(false);
-    if (fail===0) toast(`✅ Na-save ang schedule ni ${emp.name}!`);
-    else toast(`⚠️ ${ok} na-save, ${fail} nabigo.`,"err");
-    onClose();
-  }
-
-  return (
-    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5000,padding:16 }} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{ background:"white",borderRadius:16,width:"min(420px,95vw)",maxHeight:"85vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.25)" }}>
-        <div style={{ padding:"16px 20px",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,background:"white",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-          <div>
-            <div style={{ fontWeight:900,fontSize:16 }}>📅 Weekly Schedule</div>
-            <div style={{ fontSize:12,color:"#78716c" }}>{emp.emoji} {emp.name}</div>
-          </div>
-          <button onClick={onClose} style={{ border:"none",background:"#f8fafc",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16 }}>✕</button>
-        </div>
-        <div style={{ padding:"14px 20px" }}>
-          {loading ? <div style={{ textAlign:"center",padding:20,color:"#94a3b8" }}>Loading...</div> :
-            rows.map(r=>(
-              <div key={r.dow} style={{ display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid #f1f5f9" }}>
-                <div style={{ width:80,fontSize:12,fontWeight:700 }}>{DOW_NAMES[r.dow]}</div>
-                <input type="time" value={r.shift_start} disabled={r.is_day_off}
-                  onChange={e=>setRows(rows.map(x=>x.dow===r.dow?{...x,shift_start:e.target.value}:x))}
-                  style={{ flex:1,padding:"7px 9px",fontSize:12,borderRadius:6,border:"1.5px solid #e2e8f0",opacity:r.is_day_off?0.4:1 }}/>
-                <label style={{ display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#78716c",whiteSpace:"nowrap" }}>
-                  <input type="checkbox" checked={r.is_day_off} onChange={e=>setRows(rows.map(x=>x.dow===r.dow?{...x,is_day_off:e.target.checked}:x))}/>
-                  Day Off
-                </label>
-              </div>
-            ))
-          }
-          <button onClick={saveAll} disabled={saving||loading} style={{ width:"100%",marginTop:14,padding:12,background:saving?"#f1f5f9":"#1c1917",color:saving?"#94a3b8":"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:13,cursor:saving?"not-allowed":"pointer" }}>{saving?"Sinasave...":"💾 I-save ang Schedule"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function OfficeTab({ currentUser, toast }) {
   const [subTab, setSubTab] = useState("expenses");
   const [materials, setMaterials] = useState([]);
