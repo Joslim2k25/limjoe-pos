@@ -141,14 +141,19 @@ const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cas
 
 // ─── PAYROLL RATES ────────────────────────────────────────────────────────────
 const DEFAULT_DAILY_RATE = 695; // NCR rate
-const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees (Marina, Jennifer, May)
+const PROVINCIAL_DAILY_RATE_OLD = 560; // provincial rate before the Aug 26 cutoff
+const PROVINCIAL_DAILY_RATE_NEW = 600; // provincial rate from the Aug 26 cutoff onwards
+const PROVINCIAL_RATE_CHANGE_DATE = "2026-08-26"; // a payroll period starting on/after this date uses the new rate
 const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "May N. Cortez"];
-const getDailyRate = (emp) => {
+const getDailyRate = (emp, periodStart) => {
   if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
-  if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) return PROVINCIAL_DAILY_RATE;
+  if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) {
+    const ps = periodStart || todayStr();
+    return ps >= PROVINCIAL_RATE_CHANGE_DATE ? PROVINCIAL_DAILY_RATE_NEW : PROVINCIAL_DAILY_RATE_OLD;
+  }
   return DEFAULT_DAILY_RATE;
 };
-const getOTRate = (emp) => getDailyRate(emp) / 8 * 1.25;
+const getOTRate = (emp, periodStart) => getDailyRate(emp, periodStart) / 8 * 1.25;
 const PAYROLL_DEDUCTIONS = 850; // SSS 450 + PhilHealth 200 + Pag-IBIG 200, applied on the 25th/30th cutoff
 const BANK_SERVICE_FEE = 25; // optional, applied only when explicitly checked for a payroll run
 
@@ -2441,7 +2446,7 @@ export default function App() {
       let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0,totalLateMins=0,lateDeduction=0;
       const workedDates=[]; // dates the employee actually worked, for the Lates Summary drill-down
       const start=new Date(payrollFrom),end=new Date(payrollTo);
-      const dailyRate=getDailyRate(emp);
+      const dailyRate=getDailyRate(emp,payrollFrom);
       const hourlyRate=dailyRate/8; // Daily Rate ÷ 8 = hourly rate, used for undertime deduction
       // Late deduction policy: 30-min block rate = hourlyRate/2. Minimum 30 mins deducted for
       // ANY lateness (even 1 min late), rounding UP to the next 30-min block beyond that
@@ -2477,7 +2482,7 @@ export default function App() {
           }
         }
       }
-      const otRate=getOTRate(emp);
+      const otRate=getOTRate(emp,payrollFrom);
       const otHours=Math.round((otMins/60)*100)/100;
       const undertimeHours=Math.round((undertimeMins/60)*100)/100;
       const basicPay=workDays*dailyRate;
@@ -3243,8 +3248,8 @@ export default function App() {
                   const holPay=parseFloat(manualPayrollHoliday)||0;
                   if(!emp){toast("Pumili ng employee!","err");return;}
                   if(days<=0){toast("Ilagay ang days worked!","err");return;}
-                  const dailyRate=getDailyRate(emp);
-                  const otRate=getOTRate(emp);
+                  const dailyRate=getDailyRate(emp,payrollFrom);
+                  const otRate=getOTRate(emp,payrollFrom);
                   const basicPay=days*dailyRate;
                   const otPay=Math.round(otHrs*otRate*100)/100;
                   const grossPay=basicPay+otPay+holPay;
