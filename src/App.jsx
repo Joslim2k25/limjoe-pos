@@ -256,6 +256,39 @@ function printPayslip({ name, start, end, dailyRate, daysWorked, otHours, otPay,
 // month pay reference. Uses on_conflict upsert (emp_name+period_start+period_end unique) so
 // re-generating the same employee's payslip for the same period UPDATES the existing record
 // instead of creating a duplicate.
+// ─── OFFLINE QUEUE (checkout orders) ──────────────────────────────────────────
+// If the internet drops mid-checkout, the order+items are saved here instead of being
+// lost — syncQueue() (called automatically on reconnect, and via a manual Sync Now button)
+// pushes them to Supabase once the connection is back.
+const OFFLINE_QUEUE_KEY = "limjoe_offline_queue_v1";
+function addToOfflineQueue(orderPayload, itemsPayload) {
+  const q = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
+  q.push({ order: orderPayload, items: itemsPayload, queued_at: new Date().toISOString() });
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
+}
+function getOfflineQueueCount() {
+  try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]").length; } catch { return 0; }
+}
+async function syncOfflineQueue(toastFn) {
+  const q = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
+  if (!q.length) { toastFn?.("Walang naka-queue — updated na ang lahat!"); return; }
+  const failed = [];
+  for (const item of q) {
+    try {
+      const result = await sb("orders", "POST", item.order);
+      const sbOrder = result && result[0];
+      if (sbOrder?.id) {
+        const itemsWithOrderId = item.items.map(i => ({ ...i, order_id: sbOrder.id }));
+        const itemsResult = await sb("order_items", "POST", itemsWithOrderId);
+        if (!itemsResult) failed.push(item);
+      } else failed.push(item);
+    } catch (e) { failed.push(item); }
+  }
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(failed));
+  const synced = q.length - failed.length;
+  toastFn?.(synced > 0 ? `✅ Na-sync ang ${synced} order!` : "⚠️ Hindi pa ma-sync — subukan ulit.", synced>0?undefined:"err");
+}
+
 async function savePayslipRecord(rec) {
   const result = await sb("payroll_records?on_conflict=emp_name,period_start,period_end","POST",[rec],{ Prefer:"resolution=merge-duplicates,return=minimal" });
   return lastSbError === null; // return=minimal means an empty (but successful) body parses to
@@ -1227,9 +1260,15 @@ export default function App() {
   const [manualPayrollCustomAmt, setManualPayrollCustomAmt] = useState("");
   const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-25`; });
   const [depositLoading, setDepositLoading] = useState(false);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
 
   useEffect(()=>{
     (async()=>{ await loadFromSupabase(); await loadProducts(); setLoading(false); })();
+    setOfflineQueueCount(getOfflineQueueCount());
+    const onOnline=()=>{ toast("Bumalik ang internet! Nagsi-sync..."); syncOfflineQueue(toast).then(()=>setOfflineQueueCount(getOfflineQueueCount())); };
+    window.addEventListener("online", onOnline);
+    const iv=setInterval(()=>setOfflineQueueCount(getOfflineQueueCount()),5000);
+    return ()=>{ window.removeEventListener("online", onOnline); clearInterval(iv); };
   },[]);
 
   // Cashier home screen (X Reading, Last 8 Items, low stock badge, etc.) all read from
@@ -1517,20 +1556,37 @@ export default function App() {
     setSalesData(ns); await persist(SALES_KEY,ns);
 
     let savedToCloud=false; let errMsg=null;
+    const orderPayload={ order_num:orderNum, branch_id:currentBranch.id, cashier_name:currentUser.name, payment_method:paymentMethod, subtotal, discount_type:discountType, discount_amt:discountAmt, total, cash_given:cashGiven||total, change_given:paymentMethod==="cash"?Math.max(0,change):0, order_date:dk, order_time:nowStr(), reference_number:isCashless?referenceNumber.trim():null, payment_proof_url:isCashless?paymentProofUrl:null, discount_id_photo_url:discountType?discountIdPhotoUrl:null, discount_customer_name:discountType?discountCustomerName.trim():null, discount_customer_id:discountType?discountCustomerID.trim():null };
     try {
-      const result=await sb("orders","POST",{ order_num:orderNum, branch_id:currentBranch.id, cashier_name:currentUser.name, payment_method:paymentMethod, subtotal, discount_type:discountType, discount_amt:discountAmt, total, cash_given:cashGiven||total, change_given:paymentMethod==="cash"?Math.max(0,change):0, order_date:dk, order_time:nowStr(), reference_number:isCashless?referenceNumber.trim():null, payment_proof_url:isCashless?paymentProofUrl:null, discount_id_photo_url:discountType?discountIdPhotoUrl:null, discount_customer_name:discountType?discountCustomerName.trim():null, discount_customer_id:discountType?discountCustomerID.trim():null });
+      const result=await sb("orders","POST",orderPayload);
       const sbOrder=result&&result[0];
       if (sbOrder?.id) {
-        const itemsResult=await sb("order_items","POST", itemsWithFinal.map(i=>({ order_id:sbOrder.id, item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
+        const itemsPayload=itemsWithFinal.map(i=>({ order_id:sbOrder.id, item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 }));
+        const itemsResult=await sb("order_items","POST", itemsPayload);
         if (itemsResult) {
           savedToCloud=true;
           // Inventory auto-deducts via the trg_deduct_inventory DB trigger on order_items —
           // no separate RPC call needed here (the old deduct_inventory_for_order RPC was
           // disabled at the DB level to fix a double-deduction bug; this line used to still
           // call it, which was harmless but dead weight — removed).
-        } else errMsg="order_items insert failed: "+lastSbError;
-      } else errMsg="orders insert failed: "+lastSbError;
-    } catch(e) { errMsg="Exception: "+e.message; }
+        } else {
+          errMsg="order_items insert failed: "+lastSbError;
+          // Order row itself DID save, but items didn't — queue the items-only payload so
+          // syncOfflineQueue can retry just the items against the already-created order.
+          addToOfflineQueue({...orderPayload, __existingOrderId:sbOrder.id}, itemsWithFinal.map(i=>({ item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
+          toast("⚠️ Naka-queue lang ang order — hindi kumonekta. I-Sync Now kapag may internet.","err");
+        }
+      } else {
+        errMsg="orders insert failed: "+lastSbError;
+        // Genuine offline/failed save — queue the full order+items for later sync.
+        addToOfflineQueue(orderPayload, itemsWithFinal.map(i=>({ item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
+        toast("⚠️ Naka-queue lang ang order — hindi kumonekta. I-Sync Now kapag may internet.","err");
+      }
+    } catch(e) {
+      errMsg="Exception: "+e.message;
+      addToOfflineQueue(orderPayload, itemsWithFinal.map(i=>({ item_name:i.name, size:i.size, qty:i.qty, unit_price:i.price, final_price:i.finalPrice, subtotal:Math.round(i.finalPrice*i.qty*100)/100 })));
+      toast("⚠️ Naka-queue lang ang order — hindi kumonekta. I-Sync Now kapag may internet.","err");
+    }
     setDebugError(errMsg);
     // Loyalty: credit rebate using ONLY the computed order total — never a typed-in amount.
     if (loyaltyCustomer) {
@@ -2015,7 +2071,12 @@ export default function App() {
         {notif&&<Toast notif={notif}/>} {modals}
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
           <div><div style={{ fontSize:17,fontWeight:900,color:C.primary }}>LIMJOE · {currentBranch.name}</div><div style={{ fontSize:11,color:C.text3 }}>{currentUser?.emoji} {currentUser?.name} · {currentUser?.role}</div></div>
-          <button onClick={()=>{setCurrentUser(null);setEnv("home");setPosScreen("main");}} style={{ padding:"7px 14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:12,cursor:"pointer" }}>🚪 Logout</button>
+          <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+            {offlineQueueCount>0&&(
+              <button onClick={async()=>{await syncOfflineQueue(toast);setOfflineQueueCount(getOfflineQueueCount());}} style={{ padding:"7px 12px",background:C.warningBg,border:`1px solid ${C.warning}`,borderRadius:8,color:C.warning,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>⚠️ {offlineQueueCount} naka-queue — I-Sync Now</button>
+            )}
+            <button onClick={()=>{setCurrentUser(null);setEnv("home");setPosScreen("main");}} style={{ padding:"7px 14px",background:C.dangerBg,border:`1px solid ${C.danger}`,borderRadius:8,color:C.danger,fontWeight:700,fontSize:12,cursor:"pointer" }}>🚪 Logout</button>
+          </div>
         </div>
 
         <div style={{ background:C.card,borderRadius:14,padding:14,border:`1px solid ${C.border}`,boxShadow:C.shadow,marginBottom:12 }}>
