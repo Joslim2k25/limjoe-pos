@@ -196,6 +196,50 @@ const printWin = (html) => {
   w.document.close();
 };
 
+// Dedicated payslip window — matches Oniisan's exact format/layout, with LIMJOE branding.
+function printPayslip({ name, start, end, dailyRate, daysWorked, otHours, otPay, holidayPay,
+  basicPay, grossPay, statutoryDed, customDedLabel, customDedAmt, totalDed, netPay }) {
+  const w = window.open("", "_blank");
+  w.document.write(`<!DOCTYPE html><html><head><title>Payslip - ${name}</title>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;padding:24px;max-width:380px}
+  .c{text-align:center}.b{font-weight:900}.r{color:#c0392b}
+  .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #eee}
+  .divider{border-top:1px dashed #999;margin:10px 0}
+  @media print{button{display:none}}</style></head><body>
+  <div class="c b r" style="font-size:18px;letter-spacing:3px">LIMJOE</div>
+  <div class="c" style="font-size:11px">Fruit Tea &amp; Refreshments</div>
+  <div class="c b" style="margin:8px 0;font-size:14px">PAYSLIP</div>
+  <div class="divider"></div>
+  <div class="row"><span>Employee:</span><span class="b">${name}</span></div>
+  <div class="row"><span>Period:</span><span>${start} to ${end}</span></div>
+  <div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div>
+  <div class="divider"></div>
+  <div class="b" style="margin:6px 0 4px">EARNINGS</div>
+  <div class="row"><span>Basic Pay (${daysWorked} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>
+  ${otHours>0?`<div class="row"><span>OT Pay (${otHours} hrs approved)</span><span>₱${otPay.toFixed(2)}</span></div>`:''}
+  ${holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holidayPay.toFixed(2)}</span></div>`:''}
+  <div class="row b"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div>
+  <div class="divider"></div>
+  ${totalDed>0?`<div class="b" style="margin:6px 0 4px">DEDUCTIONS</div>
+  ${statutoryDed>0?`<div class="row"><span>SSS Contribution</span><span>₱450.00</span></div>
+  <div class="row"><span>PhilHealth</span><span>₱200.00</span></div>
+  <div class="row"><span>Pag-IBIG Fund</span><span>₱200.00</span></div>`:''}
+  ${customDedAmt>0?`<div class="row"><span>${customDedLabel||'Other Deduction'}</span><span>₱${customDedAmt.toFixed(2)}</span></div>`:''}
+  <div class="row b"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div>
+  <div class="divider"></div>`:''}
+  <div class="row b r" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>
+  <div class="divider"></div>
+  <div style="margin-top:40px">
+    <div class="row"><span>Prepared by:</span><span style="border-bottom:1px solid #000;min-width:150px">&nbsp;</span></div>
+    <div class="row" style="margin-top:16px"><span>Received by:</span><span style="border-bottom:1px solid #000;min-width:150px">&nbsp;</span></div>
+    <div class="row" style="margin-top:16px"><span>Date:</span><span style="border-bottom:1px solid #000;min-width:150px">&nbsp;</span></div>
+  </div>
+  <div class="c" style="margin-top:20px;font-size:9px;color:#888">Generated: ${new Date().toLocaleString('en-PH')}</div>
+  <button onclick="window.print()" style="width:100%;margin-top:16px;padding:10px;background:#c0392b;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🖨️ Print Payslip</button>
+  </body></html>`);
+  w.document.close();
+}
+
 // Permanent payslip record — every generated payslip auto-saves here for historical/13th
 // month pay reference. Uses on_conflict upsert (emp_name+period_start+period_end unique) so
 // re-generating the same employee's payslip for the same period UPDATES the existing record
@@ -3149,7 +3193,7 @@ export default function App() {
                   const totalDed=statDed+customAmt;
                   const netPay=grossPay-totalDed;
                   savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:days,total_hours:days*8,ot_hours:otHrs,basic_pay:basicPay,ot_pay:otPay,holiday_pay:holPay,gross_pay:grossPay,statutory_deduction:statDed,custom_deduction_label:customLabel||null,custom_deduction_amount:customAmt,total_deduction:totalDed,net_pay:netPay,source:"manual",generated_by:currentUser?.name||"Admin"});
-                  printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${customAmt>0?`<div class="row"><span>${customLabel||"Other Deduction"}</span><span>-₱${customAmt.toFixed(2)}</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
+                  printPayslip({name:emp.name,start:payrollFrom,end:payrollTo,dailyRate,daysWorked:days,otHours:otHrs,otPay,holidayPay:holPay,basicPay,grossPay,statutoryDed:statDed,customDedLabel:customLabel,customDedAmt:customAmt,totalDed,netPay});
                   setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollHoliday("");setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
@@ -3266,7 +3310,7 @@ export default function App() {
                       <td style={{ padding:"10px 8px",textAlign:"right",color:C.danger }}>{emp.totalDed>0?`-₱${emp.totalDed.toFixed(2)}`:"—"}</td>
                       <td style={{ padding:"10px 8px",textAlign:"right",fontWeight:900,color:C.success,fontSize:14 }}>₱{emp.netPay.toFixed(2)}</td>
                       <td style={{ padding:"10px 8px" }}>
-                        <button onClick={()=>{savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:emp.workDays,total_hours:parseFloat(emp.totalHrs)||0,ot_hours:emp.otHours,basic_pay:emp.basicPay,ot_pay:emp.otPay,holiday_pay:emp.holidayPay,gross_pay:emp.grossPay,statutory_deduction:emp.statDed,custom_deduction_label:emp.totalLateMins>0?`Late (${emp.totalLateMins}m)`:null,custom_deduction_amount:emp.lateDeduction+emp.undertimeDed,total_deduction:emp.totalDed,net_pay:emp.netPay,source:"auto",generated_by:currentUser?.name||"Admin"});printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${emp.dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${emp.workDays} days × ₱${emp.dailyRate})</span><span>₱${emp.basicPay.toFixed(2)}</span></div>${emp.otPay>0?`<div class="row"><span>OT Pay (${emp.otHours} hrs)</span><span>₱${emp.otPay.toFixed(2)}</span></div>`:""}${emp.holidayPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${emp.holidayPay.toFixed(2)}</span></div>`:""}${emp.undertimeDed>0?`<div class="row"><span>Undertime (${emp.undertimeHours} hrs)</span><span>-₱${emp.undertimeDed.toFixed(2)}</span></div>`:""}${emp.lateDeduction>0?`<div class="row"><span>Late (${emp.totalLateMins} mins)</span><span>-₱${emp.lateDeduction.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${emp.grossPay.toFixed(2)}</span></div><div class="dv"></div>${emp.statDed>0?`<div class="sec">DEDUCTIONS</div><div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div><div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${emp.statDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${emp.netPay.toFixed(2)}</span></div>`);}} style={{ padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:7,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Payslip</button>
+                        <button onClick={()=>{const lateLabel=emp.totalLateMins>0?`Late (${emp.totalLateMins}m)`:null;const lateAmt=emp.lateDeduction+emp.undertimeDed;savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:emp.workDays,total_hours:parseFloat(emp.totalHrs)||0,ot_hours:emp.otHours,basic_pay:emp.basicPay,ot_pay:emp.otPay,holiday_pay:emp.holidayPay,gross_pay:emp.grossPay,statutory_deduction:emp.statDed,custom_deduction_label:lateLabel,custom_deduction_amount:lateAmt,total_deduction:emp.totalDed,net_pay:emp.netPay,source:"auto",generated_by:currentUser?.name||"Admin"});printPayslip({name:emp.name,start:payrollFrom,end:payrollTo,dailyRate:emp.dailyRate,daysWorked:emp.workDays,otHours:emp.otHours,otPay:emp.otPay,holidayPay:emp.holidayPay,basicPay:emp.basicPay,grossPay:emp.grossPay,statutoryDed:emp.statDed,customDedLabel:lateLabel,customDedAmt:lateAmt,totalDed:emp.totalDed,netPay:emp.netPay});}} style={{ padding:"6px 12px",background:C.infoBg,border:`1px solid ${C.info}`,borderRadius:7,color:C.info,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Payslip</button>
                       </td>
                     </tr>
                   ))}
