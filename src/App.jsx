@@ -1051,6 +1051,8 @@ export default function App() {
   const [dbCategories, setDbCategories] = useState(DEFAULT_CATEGORIES);
   const [holidays, setHolidays] = useState([]);
   const [scheduleMap, setScheduleMap] = useState({}); // scheduleMap[empId][dayOfWeek] = {shift_start, is_day_off}
+  const [otApprovalsMap, setOtApprovalsMap] = useState({}); // otApprovalsMap[`${empId}_${dateKey}`] = approved ot_hours
+  const [otApprovalsList, setOtApprovalsList] = useState([]);
   const [loyaltyMembers, setLoyaltyMembers] = useState([]);
   const [loyaltyMembersLoading, setLoyaltyMembersLoading] = useState(false);
   const [loyaltySearch, setLoyaltySearch] = useState("");
@@ -1225,7 +1227,18 @@ export default function App() {
       (Array.isArray(data)?data:[]).forEach(s=>{ if(!map[s.emp_id])map[s.emp_id]={}; map[s.emp_id][s.day_of_week]={shift_start:s.shift_start?s.shift_start.slice(0,5):null,is_day_off:!!s.is_day_off}; });
       setScheduleMap(map);
     })();
+    loadOTApprovals();
   },[adminTab]);
+
+  async function loadOTApprovals(){
+    const data = await sb("ot_approvals?select=*&order=created_at.desc&limit=20");
+    setOtApprovalsList(Array.isArray(data)?data:[]);
+    const allApproved = await sb("ot_approvals?select=*&status=eq.approved");
+    const map={};
+    (Array.isArray(allApproved)?allApproved:[]).forEach(o=>{ const k=`${o.emp_id}_${o.date_key}`; map[k]=(map[k]||0)+(parseFloat(o.ot_hours)||0); });
+    setOtApprovalsMap(map);
+  }
+
 
   // ── LOAD LOYALTY MEMBERS (on-demand, when admin opens the tab) ────────────
   const loadLoyaltyMembers = async () => {
@@ -2335,7 +2348,9 @@ export default function App() {
         });
         if(dayMins>0){
           workDays++;totalMins+=dayMins;
-          if(dayMins>480)otMins+=(dayMins-480); // beyond 8 hrs/day counts as OT
+          // OT no longer auto-derived from hours over 8/day — now only counts if explicitly
+          // logged/approved via the OT Approval Requests system (matches Oniisan's policy).
+          otMins+=(otApprovalsMap[`${emp.id}_${dk}`]||0)*60;
           if(dayMins<480)undertimeMins+=(480-dayMins); // below 8 hrs/day counts as undertime
           const hol=holidays.find(h=>h.date===dk);
           if(hol){
@@ -3100,57 +3115,109 @@ export default function App() {
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>OT HOURS</div>
                   <input type="number" min="0" step="0.5" value={manualPayrollOT} onChange={e=>setManualPayrollOT(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
-                <div style={{ width:100 }}>
-                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>UNDERTIME HRS</div>
-                  <input type="number" min="0" step="0.5" value={manualPayrollUndertime} onChange={e=>setManualPayrollUndertime(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
-                </div>
                 <div style={{ width:110 }}>
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>HOLIDAY PAY (₱)</div>
                   <input type="number" min="0" value={manualPayrollHoliday} onChange={e=>setManualPayrollHoliday(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
-                <label style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 11px",background:manualPayrollBankFee?C.warningBg:"white",border:`1.5px solid ${manualPayrollBankFee?C.warning:C.border}`,borderRadius:8,cursor:"pointer",whiteSpace:"nowrap" }}>
-                  <input type="checkbox" checked={manualPayrollBankFee} onChange={e=>setManualPayrollBankFee(e.target.checked)} style={{ width:16,height:16,cursor:"pointer" }}/>
-                  <span style={{ fontSize:11,fontWeight:700,color:manualPayrollBankFee?C.warning:C.text2 }}>🏦 Bank Fee (₱{BANK_SERVICE_FEE})</span>
-                </label>
                 <div style={{ width:150 }}>
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION LABEL</div>
-                  <input value={manualPayrollCustomLabel} onChange={e=>setManualPayrollCustomLabel(e.target.value)} placeholder="e.g. Shortage, Cash Advance" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                  <input value={manualPayrollCustomLabel} onChange={e=>setManualPayrollCustomLabel(e.target.value)} placeholder="hal. Shortage, Overpayment" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
                 <div style={{ width:110 }}>
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION (₱)</div>
-                  <input type="number" min="0" step="0.01" value={manualPayrollCustomAmt} onChange={e=>setManualPayrollCustomAmt(e.target.value)} placeholder="0.00" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                  <input type="number" min="0" step="0.01" value={manualPayrollCustomAmt} onChange={e=>setManualPayrollCustomAmt(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
                 </div>
                 <button onClick={()=>{
                   const emp=employees.find(e=>String(e.id)===String(manualPayrollEmp));
                   const days=parseFloat(manualPayrollDays)||0;
                   const otHrs=parseFloat(manualPayrollOT)||0;
-                  const underHrs=parseFloat(manualPayrollUndertime)||0;
                   const holPay=parseFloat(manualPayrollHoliday)||0;
                   if(!emp){toast("Pumili ng employee!","err");return;}
                   if(days<=0){toast("Ilagay ang days worked!","err");return;}
                   const dailyRate=getDailyRate(emp);
                   const otRate=getOTRate(emp);
-                  const hourlyRate=dailyRate/8;
                   const basicPay=days*dailyRate;
                   const otPay=Math.round(otHrs*otRate*100)/100;
-                  const undertimeDed=Math.round(underHrs*hourlyRate*100)/100;
-                  const grossPay=basicPay+otPay+holPay-undertimeDed;
+                  const grossPay=basicPay+otPay+holPay;
                   // Manual Entry is meant for supplemental/corrective entries (e.g. an employee
                   // whose DTR wasn't logged) — statutory deductions (SSS/PhilHealth/Pag-IBIG) are
                   // already applied once in the main DTR-computed payroll table for this cutoff,
                   // so Manual Entry never re-deducts them (would double-deduct the same employee).
-                  // Only the optional Bank Fee checkbox applies here.
                   const statDed=0;
-                  const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
                   const customLabel=manualPayrollCustomLabel.trim();
                   const customAmt=parseFloat(manualPayrollCustomAmt)||0;
-                  const totalDed=statDed+bankFee+customAmt;
+                  const totalDed=statDed+customAmt;
                   const netPay=grossPay-totalDed;
-                  savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:days,total_hours:days*8,ot_hours:otHrs,basic_pay:basicPay,ot_pay:otPay,holiday_pay:holPay,gross_pay:grossPay,statutory_deduction:statDed,custom_deduction_label:customLabel||null,custom_deduction_amount:customAmt+bankFee,total_deduction:totalDed,net_pay:netPay,source:"manual",generated_by:currentUser?.name||"Admin"});
-                  printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}${undertimeDed>0?`<div class="row"><span>Undertime (${underHrs} hrs)</span><span>-₱${undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${statDed>0?`<div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div>`:""}${bankFee>0?`<div class="row"><span>Bank Service Fee</span><span>₱${bankFee}.00</span></div>`:""}${customAmt>0?`<div class="row"><span>${customLabel||"Other Deduction"}</span><span>-₱${customAmt.toFixed(2)}</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
-                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
+                  savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:days,total_hours:days*8,ot_hours:otHrs,basic_pay:basicPay,ot_pay:otPay,holiday_pay:holPay,gross_pay:grossPay,statutory_deduction:statDed,custom_deduction_label:customLabel||null,custom_deduction_amount:customAmt,total_deduction:totalDed,net_pay:netPay,source:"manual",generated_by:currentUser?.name||"Admin"});
+                  printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${customAmt>0?`<div class="row"><span>${customLabel||"Other Deduction"}</span><span>-₱${customAmt.toFixed(2)}</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
+                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollHoliday("");setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
+            </div>
+
+            <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
+              <div style={{ fontWeight:800,fontSize:13,color:C.text,marginBottom:10 }}>OT Approval Requests</div>
+              {otApprovalsList.length===0 ? <div style={{ textAlign:"center",padding:20,color:C.text3,fontSize:12 }}>No OT requests yet</div> : (
+                <div style={{ overflow:"auto" }}>
+                  <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+                    <thead><tr style={{ borderBottom:`1px solid ${C.border}` }}>
+                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Employee</th>
+                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Date</th>
+                      <th style={{ padding:"6px 8px",textAlign:"right" }}>OT Hrs</th>
+                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Reason</th>
+                      <th style={{ padding:"6px 8px",textAlign:"left" }}>Status</th>
+                      <th style={{ padding:"6px 8px" }}>Action</th>
+                    </tr></thead>
+                    <tbody>
+                      {otApprovalsList.map(o=>(
+                        <tr key={o.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                          <td style={{ padding:"6px 8px",fontWeight:700 }}>{o.emp_name||"—"}</td>
+                          <td style={{ padding:"6px 8px" }}>{o.date_key}</td>
+                          <td style={{ padding:"6px 8px",textAlign:"right",fontWeight:800,color:C.warning }}>{o.ot_hours} hrs</td>
+                          <td style={{ padding:"6px 8px",fontSize:11 }}>{o.reason||"—"}</td>
+                          <td style={{ padding:"6px 8px" }}>
+                            <span style={{ fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:10,background:o.status==="approved"?C.successBg:o.status==="rejected"?C.dangerBg:C.warningBg,color:o.status==="approved"?C.success:o.status==="rejected"?C.danger:C.warning }}>{o.status.toUpperCase()}</span>
+                          </td>
+                          <td style={{ padding:"6px 8px" }}>
+                            {ROLE_LEVEL[currentUser?.role||"cashier"]>=2 && o.status==="pending" ? (
+                              <div style={{ display:"flex",gap:4 }}>
+                                <button onClick={async()=>{await sb(`ot_approvals?id=eq.${o.id}`,"PATCH",{status:"approved",approved_by:currentUser?.name});toast("✅ OT Approved!");loadOTApprovals();}} style={{ padding:"3px 8px",background:C.success,color:"#fff",border:"none",borderRadius:4,fontSize:10,cursor:"pointer" }}>✅ Approve</button>
+                                <button onClick={async()=>{await sb(`ot_approvals?id=eq.${o.id}`,"PATCH",{status:"rejected",approved_by:currentUser?.name});toast("❌ OT Rejected.");loadOTApprovals();}} style={{ padding:"3px 8px",background:C.danger,color:"#fff",border:"none",borderRadius:4,fontSize:10,cursor:"pointer" }}>❌ Reject</button>
+                              </div>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {ROLE_LEVEL[currentUser?.role||"cashier"]>=2 ? (
+                <div style={{ marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}` }}>
+                  <div style={{ fontSize:11,fontWeight:800,color:C.text3,marginBottom:8 }}>+ REQUEST / LOG OT</div>
+                  <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                    <select id="otEmpSel" style={{ flex:1,minWidth:120,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}>
+                      {employees.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                    <input id="otDate" type="date" defaultValue={todayStr()} style={{ width:150,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                    <input id="otHours" type="number" placeholder="OT hrs" step="0.5" min="0.5" max="8" style={{ width:90,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                    <input id="otReason" placeholder="Reason for OT" style={{ flex:1,minWidth:150,padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                    <button onClick={async()=>{
+                      const empId=document.getElementById("otEmpSel").value;
+                      const dateKey=document.getElementById("otDate").value;
+                      const hrs=parseFloat(document.getElementById("otHours").value)||0;
+                      const reason=document.getElementById("otReason").value.trim();
+                      const emp=employees.find(e=>String(e.id)===String(empId));
+                      if(!hrs){toast("Enter OT hours.","err");return;}
+                      if(!reason){toast("Enter reason for OT.","err");return;}
+                      await sb("ot_approvals","POST",[{emp_id:empId,emp_name:emp?.name,date_key:dateKey,ot_hours:hrs,reason,status:"approved",approved_by:currentUser?.name}]);
+                      toast("OT approved and recorded!");
+                      document.getElementById("otHours").value="";document.getElementById("otReason").value="";
+                      loadOTApprovals();
+                    }} style={{ padding:"8px 14px",background:C.success,border:"none",borderRadius:8,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer" }}>Submit & Approve</button>
+                  </div>
+                </div>
+              ) : <div style={{ fontSize:11,color:C.text3,marginTop:8 }}>Manager, Admin o Owner lang ang puwedeng mag-approve ng OT requests.</div>}
             </div>
             <div style={{ display:"flex",justifyContent:"flex-end",marginBottom:10 }}>
               <button onClick={async()=>{
