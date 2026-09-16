@@ -1203,7 +1203,7 @@ export default function App() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
-  const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); d.setDate(10); return d.toISOString().split("T")[0]; });
+  const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-11`; });
   const [manualPayrollEmp, setManualPayrollEmp] = useState("");
   const [manualPayrollDays, setManualPayrollDays] = useState("");
   const [manualPayrollOT, setManualPayrollOT] = useState("");
@@ -1212,7 +1212,7 @@ export default function App() {
   const [manualPayrollBankFee, setManualPayrollBankFee] = useState(false);
   const [manualPayrollCustomLabel, setManualPayrollCustomLabel] = useState("");
   const [manualPayrollCustomAmt, setManualPayrollCustomAmt] = useState("");
-  const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
+  const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-25`; });
   const [depositLoading, setDepositLoading] = useState(false);
 
   useEffect(()=>{
@@ -3115,7 +3115,7 @@ export default function App() {
             </div>);
           })()}
 
-          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
+          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ padding:"7px 12px",borderRadius:7,border:`1px solid ${C.border}`,background:C.bg2,color:C.text,fontSize:12,fontWeight:700 }}>{payrollFrom} to {payrollTo}</div></div>
             {(()=>{
               const now=new Date();
               const y=now.getFullYear(), m=now.getMonth(); // 0-indexed month
