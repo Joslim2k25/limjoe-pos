@@ -197,6 +197,18 @@ const printWin = (html) => {
 };
 
 // Dedicated payslip window — matches Oniisan's exact format/layout, with LIMJOE branding.
+// Generates the two standard cutoff periods (26-10 and 11-25) for a given year/month,
+// mirroring Oniisan's getCutoffPeriods() exactly.
+function getCutoffPeriods(year, month) {
+  const pad = n => String(n).padStart(2, "0");
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return [
+    { label: `${pad(prevMonth)}/26/${prevYear} - ${pad(month)}/10/${year}`, start: `${prevYear}-${pad(prevMonth)}-26`, end: `${year}-${pad(month)}-10` },
+    { label: `${pad(month)}/11/${year} - ${pad(month)}/25/${year}`, start: `${year}-${pad(month)}-11`, end: `${year}-${pad(month)}-25` },
+  ];
+}
+
 function printPayslip({ name, start, end, dailyRate, daysWorked, otHours, otPay, holidayPay,
   basicPay, grossPay, statutoryDed, customDedLabel, customDedAmt, totalDed, netPay }) {
   const w = window.open("", "_blank");
@@ -3115,28 +3127,18 @@ export default function App() {
             </div>);
           })()}
 
-          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ padding:"7px 12px",borderRadius:7,border:`1px solid ${C.border}`,background:C.bg2,color:C.text,fontSize:12,fontWeight:700 }}>{payrollFrom} to {payrollTo}</div></div>
+          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div>
             {(()=>{
-              const now=new Date();
-              const y=now.getFullYear(), m=now.getMonth(); // 0-indexed month
-              const pad=n=>String(n).padStart(2,"0");
-              const fmt2=(yy,mm,dd)=>`${yy}-${pad(mm+1)}-${pad(dd)}`;
-              const isFirstHalfNow = now.getDate()<=25 && now.getDate()>=11;
-              // Cutoff A: 11–25 of the current month. Cutoff B: 26 of one month – 10 of the next.
-              const cutoffs=[
-                { label:"11–25 (kasalukuyang buwan)", from:fmt2(y,m,11), to:fmt2(y,m,25) },
-                { label:"26 – 10 (susunod na buwan)", from:fmt2(y,m,26), to:fmt2(m===11?y+1:y,(m+1)%12,10) },
-                { label:"26 – 10 (nakaraang buwan)", from:fmt2(m===0?y-1:y,(m+11)%12,26), to:fmt2(y,m,10) },
-              ];
+              const periods=[];
+              for(let y=2025;y<=2027;y++)for(let m=1;m<=12;m++){getCutoffPeriods(y,m).forEach(p=>periods.push(p));}
               return (
-                <div style={{ display:"flex",gap:6,marginBottom:12,flexWrap:"wrap" }}>
-                  {cutoffs.map(c=>(
-                    <button key={c.label} onClick={()=>{setPayrollFrom(c.from);setPayrollTo(c.to);}}
-                      style={{ padding:"6px 11px",background:(payrollFrom===c.from&&payrollTo===c.to)?C.text:"white",color:(payrollFrom===c.from&&payrollTo===c.to)?"white":C.text2,border:`1px solid ${C.border}`,borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer" }}>{c.label}</button>
-                  ))}
-                </div>
+                <select value={`${payrollFrom}_${payrollTo}`} onChange={e=>{const[f,t]=e.target.value.split("_");setPayrollFrom(f);setPayrollTo(t);}}
+                  style={{ padding:"7px 12px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:12,fontWeight:700,minWidth:220 }}>
+                  {periods.map(p=><option key={`${p.start}_${p.end}`} value={`${p.start}_${p.end}`}>{p.label}</option>)}
+                </select>
               );
             })()}
+            </div>
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
               <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions:</b> SSS ₱450 + PhilHealth ₱200 + Pag-IBIG ₱200 = ₱850 (cutoffs ending 25th/30th)
             </div>
