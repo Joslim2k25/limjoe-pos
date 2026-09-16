@@ -202,7 +202,8 @@ const printWin = (html) => {
 // instead of creating a duplicate.
 async function savePayslipRecord(rec) {
   const result = await sb("payroll_records?on_conflict=emp_name,period_start,period_end","POST",[rec],{ Prefer:"resolution=merge-duplicates,return=minimal" });
-  return result;
+  return lastSbError === null; // return=minimal means an empty (but successful) body parses to
+  // null too — lastSbError is the reliable success/failure signal here, not the return value.
 }
 
 // ─── EXCEL BULK UPLOAD HELPERS ────────────────────────────────────────────────
@@ -1146,6 +1147,7 @@ export default function App() {
   const [newEmpRole, setNewEmpRole] = useState("cashier");
   const [newEmpBranch, setNewEmpBranch] = useState(BRANCHES[0].id);
   const [showAddEmp, setShowAddEmp] = useState(false);
+  const [bulkPayrollSaving, setBulkPayrollSaving] = useState(false);
   const [schedEmp, setSchedEmp] = useState(null); // employee currently being scheduled, or null
   const [cashOnHand, setCashOnHand] = useState({});
   const [bankDeposit, setBankDeposit] = useState({});
@@ -3149,6 +3151,20 @@ export default function App() {
                   setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
+            </div>
+            <div style={{ display:"flex",justifyContent:"flex-end",marginBottom:10 }}>
+              <button onClick={async()=>{
+                if(!payrollRows.length){toast("Walang payroll na na-compute.","err");return;}
+                setBulkPayrollSaving(true);
+                let ok=0,fail=0;
+                for(const emp of payrollRows){
+                  const success=await savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:emp.workDays,total_hours:parseFloat(emp.totalHrs)||0,ot_hours:emp.otHours,basic_pay:emp.basicPay,ot_pay:emp.otPay,holiday_pay:emp.holidayPay,gross_pay:emp.grossPay,statutory_deduction:emp.statDed,custom_deduction_label:emp.totalLateMins>0?`Late (${emp.totalLateMins}m)`:null,custom_deduction_amount:emp.lateDeduction+emp.undertimeDed,total_deduction:emp.totalDed,net_pay:emp.netPay,source:"auto",generated_by:currentUser?.name||"Admin"});
+                  if(success)ok++;else fail++;
+                }
+                setBulkPayrollSaving(false);
+                if(fail===0)toast(`✅ Na-save ang payroll ng ${ok} empleyado!`);
+                else toast(`⚠️ ${ok} na-save, ${fail} nabigo.`,"err");
+              }} disabled={bulkPayrollSaving||!payrollRows.length} style={{ padding:"9px 16px",background:bulkPayrollSaving?C.bg3:C.success,color:"white",border:"none",borderRadius:8,fontWeight:800,fontSize:12,cursor:bulkPayrollSaving?"not-allowed":"pointer" }}>{bulkPayrollSaving?"Sinasave...":"💾 I-save ang Lahat ng Payroll Records"}</button>
             </div>
             <div style={{ background:"white",borderRadius:12,border:`1px solid ${C.border}`,boxShadow:C.shadow,overflow:"auto" }}>
               <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:900 }}>
