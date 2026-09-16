@@ -1149,6 +1149,8 @@ export default function App() {
   const [manualPayrollOT, setManualPayrollOT] = useState("");
   const [manualPayrollUndertime, setManualPayrollUndertime] = useState("");
   const [manualPayrollHoliday, setManualPayrollHoliday] = useState("");
+  const [manualPayrollCustomLabel, setManualPayrollCustomLabel] = useState("");
+  const [manualPayrollCustomAmt, setManualPayrollCustomAmt] = useState("");
   const [manualPayrollBankFee, setManualPayrollBankFee] = useState(false);
   const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
   const [depositLoading, setDepositLoading] = useState(false);
@@ -3033,6 +3035,14 @@ export default function App() {
                   <input type="checkbox" checked={manualPayrollBankFee} onChange={e=>setManualPayrollBankFee(e.target.checked)} style={{ width:16,height:16,cursor:"pointer" }}/>
                   <span style={{ fontSize:11,fontWeight:700,color:manualPayrollBankFee?C.warning:C.text2 }}>🏦 Bank Fee (₱{BANK_SERVICE_FEE})</span>
                 </label>
+                <div style={{ width:150 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION LABEL</div>
+                  <input value={manualPayrollCustomLabel} onChange={e=>setManualPayrollCustomLabel(e.target.value)} placeholder="hal. Shortage, Overpayment" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
+                <div style={{ width:110 }}>
+                  <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION (₱)</div>
+                  <input type="number" min="0" step="0.01" value={manualPayrollCustomAmt} onChange={e=>setManualPayrollCustomAmt(e.target.value)} placeholder="0" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
+                </div>
                 <button onClick={()=>{
                   const emp=employees.find(e=>String(e.id)===String(manualPayrollEmp));
                   const days=parseFloat(manualPayrollDays)||0;
@@ -3052,13 +3062,14 @@ export default function App() {
                   // whose DTR wasn't logged) — statutory deductions (SSS/PhilHealth/Pag-IBIG) are
                   // already applied once in the main DTR-computed payroll table for this cutoff,
                   // so Manual Entry never re-deducts them (would double-deduct the same employee).
-                  // Only the optional Bank Fee checkbox applies here.
                   const statDed=0;
                   const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
-                  const totalDed=statDed+bankFee;
+                  const customLabel=manualPayrollCustomLabel.trim();
+                  const customAmt=parseFloat(manualPayrollCustomAmt)||0;
+                  const totalDed=statDed+bankFee+customAmt;
                   const netPay=grossPay-totalDed;
-                  printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}${undertimeDed>0?`<div class="row"><span>Undertime (${underHrs} hrs)</span><span>-₱${undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${statDed>0?`<div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div>`:""}${bankFee>0?`<div class="row"><span>Bank Service Fee</span><span>₱${bankFee}.00</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed}.00</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
-                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);
+                  printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}${undertimeDed>0?`<div class="row"><span>Undertime (${underHrs} hrs)</span><span>-₱${undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${statDed>0?`<div class="row"><span>SSS</span><span>₱450.00</span></div><div class="row"><span>PhilHealth</span><span>₱200.00</span></div><div class="row"><span>Pag-IBIG</span><span>₱200.00</span></div>`:""}${bankFee>0?`<div class="row"><span>Bank Service Fee</span><span>₱${bankFee}.00</span></div>`:""}${customAmt>0?`<div class="row"><span>${customLabel||"Other Deduction"}</span><span>-₱${customAmt.toFixed(2)}</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
+                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
             </div>
