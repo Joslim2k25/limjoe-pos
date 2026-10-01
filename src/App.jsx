@@ -196,6 +196,30 @@ const printWin = (html) => {
   w.document.close();
 };
 
+// Generates the two standard cutoff periods for a given year/month, each labeled with its
+// actual payout date: 11-25 cutoff pays at END OF MONTH; 26-(prev month)-10 cutoff pays on
+// the 15th of the same month.
+function getCutoffPeriods(year, month) {
+  const pad = n => String(n).padStart(2, "0");
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  const lastDayOfMonth = new Date(year, month, 0).getDate();
+  const monthName = new Date(year, month - 1, 1).toLocaleDateString("en-PH", { month: "long" });
+  const prevMonthName = new Date(prevYear, prevMonth - 1, 1).toLocaleDateString("en-PH", { month: "long" });
+  return [
+    {
+      label: `${prevMonthName} 26 - ${monthName} 10, ${year} (Bayad: ${monthName} 15)`,
+      start: `${prevYear}-${pad(prevMonth)}-26`,
+      end: `${year}-${pad(month)}-10`,
+    },
+    {
+      label: `${monthName} 11-25, ${year} (Bayad: ${monthName} ${lastDayOfMonth})`,
+      start: `${year}-${pad(month)}-11`,
+      end: `${year}-${pad(month)}-25`,
+    },
+  ];
+}
+
 // Permanent payslip record — every generated payslip auto-saves here for historical/13th
 // month pay reference. payroll_records has a UNIQUE constraint on (emp_name, period_start,
 // period_end) — upsert via on_conflict so re-generating the same payslip UPDATES the
@@ -1153,7 +1177,7 @@ export default function App() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
-  const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); d.setDate(10); return d.toISOString().split("T")[0]; });
+  const [payrollFrom, setPayrollFrom] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-11`; });
   const [manualPayrollEmp, setManualPayrollEmp] = useState("");
   const [manualPayrollDays, setManualPayrollDays] = useState("");
   const [manualPayrollOT, setManualPayrollOT] = useState("");
@@ -1162,7 +1186,7 @@ export default function App() {
   const [manualPayrollCustomLabel, setManualPayrollCustomLabel] = useState("");
   const [manualPayrollCustomAmt, setManualPayrollCustomAmt] = useState("");
   const [manualPayrollBankFee, setManualPayrollBankFee] = useState(false);
-  const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); d.setDate(25); return d.toISOString().split("T")[0]; });
+  const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-25`; });
   const [depositLoading, setDepositLoading] = useState(false);
 
   useEffect(()=>{
@@ -3010,7 +3034,18 @@ export default function App() {
             </div>);
           })()}
 
-          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div><div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}><input type="date" value={payrollFrom} onChange={e=>setPayrollFrom(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/><span style={{ fontSize:11,color:C.text3 }}>to</span><input type="date" value={payrollTo} onChange={e=>setPayrollTo(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11 }}/></div></div>
+          {adminTab==="payroll"&&(<div><div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8 }}><div style={PT}>💰 Payroll Summary</div>
+            {(()=>{
+              const periods=[];
+              for(let y=2025;y<=2027;y++)for(let m=1;m<=12;m++){getCutoffPeriods(y,m).forEach(p=>periods.push(p));}
+              return (
+                <select value={`${payrollFrom}_${payrollTo}`} onChange={e=>{const[f,t]=e.target.value.split("_");setPayrollFrom(f);setPayrollTo(t);}}
+                  style={{ padding:"7px 12px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:12,fontWeight:700,minWidth:260 }}>
+                  {periods.map(p=><option key={`${p.start}_${p.end}`} value={`${p.start}_${p.end}`}>{p.label}</option>)}
+                </select>
+              );
+            })()}
+            </div>
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
               <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions:</b> SSS ₱450 + PhilHealth ₱200 + Pag-IBIG ₱200 = ₱850 (cutoffs ending 25th/30th)
             </div>
