@@ -1201,6 +1201,7 @@ export default function App() {
   const [manualPayrollHoliday, setManualPayrollHoliday] = useState("");
   const [manualPayrollCustomLabel, setManualPayrollCustomLabel] = useState("");
   const [manualPayrollCustomAmt, setManualPayrollCustomAmt] = useState("");
+  const [manualPayrollApplyStat, setManualPayrollApplyStat] = useState(true); // katapusan: SSS/Pag-IBIG/PhilHealth on/off for THIS payslip
   const [manualPayrollBankFee, setManualPayrollBankFee] = useState(false);
   const [payrollTo, setPayrollTo] = useState(()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-25`; });
   const [depositLoading, setDepositLoading] = useState(false);
@@ -3112,7 +3113,7 @@ export default function App() {
             })()}
             </div>
             {isKatapusanPayroll(payrollTo)
-              ? <div style={{ background:C.successBg||"#ecfdf5",border:`1px solid ${C.success}`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.success }}>✅ Katapusan payroll — awtomatikong ibabawas sa bawat empleyadong may araw ng trabaho: SSS ₱{STATUTORY_DEDUCTIONS.sss} · Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} · PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} (kabuuan ₱{PAYROLL_DEDUCTIONS}). Kasama ang Manual Entry, maliban kung nabawasan na sa payroll table ang empleyado.</div>
+              ? <div style={{ background:C.successBg||"#ecfdf5",border:`1px solid ${C.success}`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.success }}>✅ Katapusan payroll — awtomatikong ibabawas sa bawat empleyadong may araw ng trabaho: SSS ₱{STATUTORY_DEDUCTIONS.sss} · Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} · PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} (kabuuan ₱{PAYROLL_DEDUCTIONS}). Kasama ang Manual Entry (may checkbox sa form kung hindi dapat bawasan ang isang empleyado), maliban kung nabawasan na sa payroll table. Nananatili ang Custom Deduction para sa ibang bawas.</div>
               : <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.text2 }}>ℹ️ Payroll sa ika-15 — walang SSS / Pag-IBIG / PhilHealth na bawas (sa katapusan lang ito)</div>}
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
               <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions (katapusan):</b> SSS ₱{STATUTORY_DEDUCTIONS.sss} + Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} + PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} = ₱{PAYROLL_DEDUCTIONS} — awtomatiko sa payroll na binabayaran sa katapusan (11–25 cutoff)
@@ -3148,6 +3149,10 @@ export default function App() {
                   <input type="checkbox" checked={manualPayrollBankFee} onChange={e=>setManualPayrollBankFee(e.target.checked)} style={{ width:16,height:16,cursor:"pointer" }}/>
                   <span style={{ fontSize:11,fontWeight:700,color:manualPayrollBankFee?C.warning:C.text2 }}>🏦 Bank Fee (₱{BANK_SERVICE_FEE})</span>
                 </label>
+                {isKatapusanPayroll(payrollTo)&&<label style={{ display:"flex",alignItems:"center",gap:6,padding:"9px 11px",background:manualPayrollApplyStat?C.successBg||"#ecfdf5":"white",border:`1.5px solid ${manualPayrollApplyStat?C.success:C.border}`,borderRadius:8,cursor:"pointer",whiteSpace:"nowrap" }} title="Katapusan payroll: awtomatikong ibabawas. I-uncheck kung hindi dapat bawasan ang empleyadong ito.">
+                  <input type="checkbox" checked={manualPayrollApplyStat} onChange={e=>setManualPayrollApplyStat(e.target.checked)} style={{ width:16,height:16,cursor:"pointer" }}/>
+                  <span style={{ fontSize:11,fontWeight:700,color:manualPayrollApplyStat?C.success:C.text2 }}>🏛️ SSS · Pag-IBIG · PhilHealth (₱{PAYROLL_DEDUCTIONS})</span>
+                </label>}
                 <div style={{ width:150 }}>
                   <div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:4 }}>CUSTOM DEDUCTION LABEL</div>
                   <input value={manualPayrollCustomLabel} onChange={e=>setManualPayrollCustomLabel(e.target.value)} placeholder="hal. Shortage, Overpayment" style={{ width:"100%",padding:"9px 11px",fontSize:13,borderRadius:8,border:`1.5px solid ${C.border}` }}/>
@@ -3177,7 +3182,7 @@ export default function App() {
                   // already deducted them for this same employee and cutoff, this is just a supplemental entry and deducting again
                   // would double-deduct.
                   const mainRow=payrollRows.find(r=>String(r.id)===String(emp.id));
-                  const needsStat=isKatapusanPayroll(payrollTo)&&!((mainRow&&mainRow.statDed)>0);
+                  const needsStat=isKatapusanPayroll(payrollTo)&&manualPayrollApplyStat&&!((mainRow&&mainRow.statDed)>0);
                   const sssDed=needsStat?STATUTORY_DEDUCTIONS.sss:0;
                   const pagibigDed=needsStat?STATUTORY_DEDUCTIONS.pagibig:0;
                   const philhealthDed=needsStat?STATUTORY_DEDUCTIONS.philhealth:0;
@@ -3185,11 +3190,14 @@ export default function App() {
                   const bankFee=manualPayrollBankFee?BANK_SERVICE_FEE:0;
                   const customLabel=manualPayrollCustomLabel.trim();
                   const customAmt=parseFloat(manualPayrollCustomAmt)||0;
+                  // The owner used to type "SSS, Pagibig at Philhealth" in Custom Deduction by hand. Now that it is automatic, doing both
+                  // would deduct it TWICE — ask first. (Custom Deduction itself stays for anything else: overpayment, shortage, etc.)
+                  if(statDed>0&&customAmt>0&&/sss|pag-?ibig|philhealth/i.test(customLabel)&&!window.confirm(`Awtomatiko nang ibinabawas ang SSS ₱${sssDed}, Pag-IBIG ₱${pagibigDed}, PhilHealth ₱${philhealthDed} (₱${statDed}).\n\nNilagay mo rin ito sa Custom Deduction ("${customLabel}" ₱${customAmt}) — MADODOBLE ang bawas.\n\nITULOY PA RIN?`)) return;
                   const totalDed=statDed+bankFee+customAmt;
                   const netPay=grossPay-totalDed;
                   savePayslipRecord({emp_name:emp.name,period_start:payrollFrom,period_end:payrollTo,days_worked:days,total_hours:days*8,ot_hours:otHrs,basic_pay:basicPay,ot_pay:otPay,holiday_pay:holPay,gross_pay:grossPay,statutory_deduction:statDed,custom_deduction_label:customLabel||null,custom_deduction_amount:customAmt+bankFee,total_deduction:totalDed,net_pay:netPay,source:"manual",generated_by:currentUser?.name||"Admin"});
                   printWin(`<div class="c"><div class="brand">LIMJOE</div><div style="font-size:9px;color:#666">Payslip (Manual Entry)</div></div><div class="dv"></div><div class="row"><span>Employee:</span><span><b>${emp.name}</b></span></div><div class="row"><span>Period:</span><span>${payrollFrom} to ${payrollTo}</span></div><div class="row"><span>Daily Rate:</span><span>₱${dailyRate}.00</span></div><div class="dv"></div><div class="sec">EARNINGS</div><div class="row"><span>Basic Pay (${days} days × ₱${dailyRate})</span><span>₱${basicPay.toFixed(2)}</span></div>${otPay>0?`<div class="row"><span>OT Pay (${otHrs} hrs)</span><span>₱${otPay.toFixed(2)}</span></div>`:""}${holPay>0?`<div class="row"><span>Holiday Pay</span><span>₱${holPay.toFixed(2)}</span></div>`:""}${undertimeDed>0?`<div class="row"><span>Undertime (${underHrs} hrs)</span><span>-₱${undertimeDed.toFixed(2)}</span></div>`:""}<div class="row big"><span>GROSS PAY</span><span>₱${grossPay.toFixed(2)}</span></div><div class="dv"></div>${totalDed>0?`<div class="sec">DEDUCTIONS</div>${statDed>0?`<div class="row"><span>SSS</span><span>₱${sssDed.toFixed(2)}</span></div><div class="row"><span>Pag-IBIG</span><span>₱${pagibigDed.toFixed(2)}</span></div><div class="row"><span>PhilHealth</span><span>₱${philhealthDed.toFixed(2)}</span></div>`:""}${bankFee>0?`<div class="row"><span>Bank Service Fee</span><span>₱${bankFee}.00</span></div>`:""}${customAmt>0?`<div class="row"><span>${customLabel||"Other Deduction"}</span><span>-₱${customAmt.toFixed(2)}</span></div>`:""}<div class="row big"><span>TOTAL DEDUCTIONS</span><span>₱${totalDed.toFixed(2)}</span></div><div class="dv"></div>`:""}<div class="row big grn" style="font-size:16px"><span>NET PAY</span><span>₱${netPay.toFixed(2)}</span></div>`);
-                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");
+                  setManualPayrollEmp("");setManualPayrollDays("");setManualPayrollOT("");setManualPayrollUndertime("");setManualPayrollHoliday("");setManualPayrollBankFee(false);setManualPayrollCustomLabel("");setManualPayrollCustomAmt("");setManualPayrollApplyStat(true);
                 }} style={{ padding:"9px 16px",background:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:"pointer",whiteSpace:"nowrap" }}>📄 Generate Payslip</button>
               </div>
             </div>
