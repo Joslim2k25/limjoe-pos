@@ -137,6 +137,7 @@ const EMPLOYEES_SEED = [
   { id: 17, name: "May N. Cortez", pin: "8463", role: "cashier", emoji: "👤", branchId: 4 },
 ];
 const ROLE_LEVEL = { owner: 4, admin: 3, manager: 2, cashier: 1 };
+const EXPENSE_CATEGORIES = ["Cost of Products/Ingredients", "Shipping Fee", "Office Supplies", "Miscellaneous"]; // same choices the cashier has
 const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cashier: "#16a34a" };
 
 // ─── PAYROLL RATES ────────────────────────────────────────────────────────────
@@ -1161,6 +1162,9 @@ export default function App() {
   const [editExpenseVals, setEditExpenseVals] = useState({});
   const [expensesAdminRows, setExpensesAdminRows] = useState([]);
   const [expensesAdminLoading, setExpensesAdminLoading] = useState(false);
+  const [showAdminExpForm, setShowAdminExpForm] = useState(false);
+  const [adminExpForm, setAdminExpForm] = useState({ date:"", branchId:"", category:"Cost of Products/Ingredients", desc:"", amount:"" });
+  const [savingAdminExp, setSavingAdminExp] = useState(false);
   const [reportDate, setReportDate] = useState(todayStr());
   const [dtrWeekStart, setDtrWeekStart] = useState(()=>{ const d=new Date(); d.setDate(d.getDate()-d.getDay()); return d.toISOString().slice(0,10); });
   const [wideLayout, setWideLayout] = useState(typeof window!=="undefined" && window.innerWidth >= 880);
@@ -1536,6 +1540,33 @@ export default function App() {
     auditLog('EXPENSE_DELETE', `Expense deleted: "${exp.desc}" — ₱${exp.amount} (${exp.category}) — ${exp.date}`, currentUser, exp.branchId, exp.branch);
     toast("✅ Natanggal ang expense!");
     await Promise.all([loadExpensesAdmin(), loadFromSupabase()]);
+  }
+
+  // Admin: add an expense the cashier FORGOT to declare — for ANY past date and ANY branch (the cashier's Add Expense only does
+  // "today, my branch"). It is saved as "<name> (admin)" in the Added-by column and written to the audit log.
+  async function addExpenseAsAdmin() {
+    if (ROLE_LEVEL[currentUser?.role||"cashier"] < 3) { toast("Admin lang ang puwedeng mag-add ng expense dito.","err"); return; }
+    if (savingAdminExp) return; // guard against double-tap
+    const f = adminExpForm;
+    const amt = parseFloat(f.amount);
+    if (!f.date) { toast("Piliin ang petsa!","err"); return; }
+    if (f.date > todayStr()) { toast("Hindi puwede ang petsa sa hinaharap!","err"); return; }
+    const branch = BRANCHES.find(b=>String(b.id)===String(f.branchId));
+    if (!branch) { toast("Piliin ang branch!","err"); return; }
+    if (!f.desc.trim() || !amt || amt <= 0) { toast("Lagyan ng description at tamang amount!","err"); return; }
+    setSavingAdminExp(true);
+    const r = await sb("expenses","POST",{ branch_id:branch.id, description:f.desc.trim(), category:f.category, amount:amt, expense_date:f.date, expense_time:nowStr(), added_by:`${currentUser?.name||"Admin"} (admin)` });
+    if (!r || !r[0]) { toast("Hindi na-save: "+(lastSbError||"subukan ulit"),"err"); setSavingAdminExp(false); return; }
+    auditLog('EXPENSE_ADD', `Expense added by admin (nakalimutan ng cashier): "${f.desc.trim()}" ₱${amt} (${f.category}) — ${f.date}`, currentUser, branch.id, branch.name, r[0].id);
+    toast(`✅ Naidagdag: ₱${amt.toLocaleString()} — ${branch.name} (${f.date})`);
+    setAdminExpForm(p=>({ ...p, desc:"", amount:"" }));
+    setShowAdminExpForm(false);
+    // make sure the new row is visible: widen the date range (the effect reloads the list), otherwise reload right away
+    const needFrom = f.date < expensesAdminFrom, needTo = f.date > expensesAdminTo;
+    if (needFrom || needTo) { if (needFrom) setExpensesAdminFrom(f.date); if (needTo) setExpensesAdminTo(f.date); }
+    else await loadExpensesAdmin();
+    await loadFromSupabase();
+    setSavingAdminExp(false);
   }
 
   const createEmployee = async () => {
@@ -2784,10 +2815,28 @@ export default function App() {
                   <select value={selectedBranch} onChange={e=>setSelectedBranch(e.target.value)} style={{ padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,background:"white",color:C.text,fontSize:11,cursor:"pointer" }}>
                     <option value="all">🏪 Lahat ng Branches</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
+                  {ROLE_LEVEL[currentUser?.role||"cashier"]>=3&&<button onClick={()=>{ setAdminExpForm(p=>({ ...p, date:todayStr(), branchId:selectedBranch!=="all"?String(selectedBranch):p.branchId })); setShowAdminExpForm(v=>!v); }} style={{ padding:"6px 12px",background:C.success,border:"none",borderRadius:7,color:"white",fontWeight:800,fontSize:11,cursor:"pointer" }}>➕ Magdagdag ng Expense</button>}
                   <button onClick={loadExpensesAdmin} disabled={expensesAdminLoading} style={{ padding:"6px 12px",background:"white",border:`1px solid ${C.border}`,borderRadius:7,color:C.info,fontWeight:700,fontSize:11,cursor:expensesAdminLoading?"default":"pointer" }}>{expensesAdminLoading?"⏳ Loading...":"🔄 Refresh"}</button>
                 </div>
               </div>
               <div style={{ fontSize:10,color:C.text3,marginTop:-8,marginBottom:12 }}>Live mula sa database — palaging updated, hindi naka-depende sa lumang naka-cache na datos.</div>
+              {showAdminExpForm&&ROLE_LEVEL[currentUser?.role||"cashier"]>=3&&(
+                <div style={{ background:"white",border:`2px solid ${C.success}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
+                  <div style={{ fontWeight:800,fontSize:13,color:C.success,marginBottom:4 }}>➕ Magdagdag ng expense na nakalimutan i-declare ng cashier</div>
+                  <div style={{ fontSize:10,color:C.text3,marginBottom:10 }}>Puwede sa kahit anong nakaraang petsa at branch. Makikita sa "Added by" na ikaw ang nagdagdag ({currentUser?.name} (admin)).</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:10 }}>
+                    <div><div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:3 }}>PETSA</div><input type="date" max={todayStr()} value={adminExpForm.date} onChange={e=>setAdminExpForm(p=>({ ...p, date:e.target.value }))} style={{ width:"100%",padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}`,boxSizing:"border-box" }}/></div>
+                    <div><div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:3 }}>BRANCH</div><select value={adminExpForm.branchId} onChange={e=>setAdminExpForm(p=>({ ...p, branchId:e.target.value }))} style={{ width:"100%",padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white",boxSizing:"border-box" }}><option value="">— Piliin ang branch —</option>{BRANCHES.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+                    <div><div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:3 }}>CATEGORY</div><select value={adminExpForm.category} onChange={e=>setAdminExpForm(p=>({ ...p, category:e.target.value }))} style={{ width:"100%",padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}`,background:"white",boxSizing:"border-box" }}>{EXPENSE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
+                    <div style={{ gridColumn:"span 2",minWidth:150 }}><div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:3 }}>DESCRIPTION</div><input value={adminExpForm.desc} onChange={e=>setAdminExpForm(p=>({ ...p, desc:e.target.value }))} placeholder="hal. Yelo, Gas, Pamasahe" style={{ width:"100%",padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}`,boxSizing:"border-box" }}/></div>
+                    <div><div style={{ fontSize:10,color:C.text3,fontWeight:700,marginBottom:3 }}>AMOUNT (₱)</div><input type="number" min="0" step="0.01" value={adminExpForm.amount} onChange={e=>setAdminExpForm(p=>({ ...p, amount:e.target.value }))} placeholder="0" style={{ width:"100%",padding:"8px 10px",fontSize:12,borderRadius:8,border:`1.5px solid ${C.border}`,boxSizing:"border-box" }}/></div>
+                  </div>
+                  <div style={{ display:"flex",gap:8 }}>
+                    <button onClick={addExpenseAsAdmin} disabled={savingAdminExp} style={{ padding:"9px 18px",background:savingAdminExp?C.bg3:C.success,border:"none",borderRadius:8,color:"white",fontWeight:800,fontSize:12,cursor:savingAdminExp?"default":"pointer" }}>{savingAdminExp?"⏳ Sine-save...":"💾 I-save ang Expense"}</button>
+                    <button onClick={()=>setShowAdminExpForm(false)} style={{ padding:"9px 14px",background:"white",border:`1px solid ${C.border}`,borderRadius:8,color:C.text2,fontWeight:700,fontSize:12,cursor:"pointer" }}>Cancel</button>
+                  </div>
+                </div>
+              )}
               <div style={{ position:"relative",marginBottom:14 }}>
                 <span style={{ position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:C.text3 }}>🔍</span>
                 <input value={expensesAdminSearch} onChange={e=>setExpensesAdminSearch(e.target.value)} placeholder="Hanapin: description, category, branch, o cashier..." style={{ width:"100%",padding:"9px 12px 9px 32px",borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,boxSizing:"border-box" }}/>
