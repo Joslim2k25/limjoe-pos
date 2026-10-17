@@ -147,6 +147,7 @@ const RATE_CHANGE_DATE = "2026-09-26";
 const OLD_DEFAULT_DAILY_RATE = 695;
 const NEW_DEFAULT_DAILY_RATE = 755;
 const defaultDailyRateOn = (dk) => (dk && String(dk).slice(0,10) >= RATE_CHANGE_DATE) ? NEW_DEFAULT_DAILY_RATE : OLD_DEFAULT_DAILY_RATE;
+const NO_RATE_CHANGE_BRANCH_IDS = [3]; // Southwoods = Branch 3 -> excluded from the P755 rate (keeps its existing rate)
 const isLockedPeriod = (periodEnd) => String(periodEnd||"").slice(0,10) < RATE_CHANGE_DATE; // past payroll: saved records are never overwritten
 const DEFAULT_DAILY_RATE = NEW_DEFAULT_DAILY_RATE; // latest NCR rate (reference only)
 const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees
@@ -154,6 +155,7 @@ const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "
 const getDailyRate = (emp, dk) => {
   if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
   if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) return PROVINCIAL_DAILY_RATE;
+  if (NO_RATE_CHANGE_BRANCH_IDS.includes(Number(emp.branchId))) return OLD_DEFAULT_DAILY_RATE; // Southwoods (Branch 3): the P755 change does NOT apply
   return defaultDailyRateOn(dk);
 };
 const getOTRate = (emp, dk) => getDailyRate(emp, dk) / 8 * 1.25;
