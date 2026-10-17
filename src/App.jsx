@@ -147,15 +147,17 @@ const RATE_CHANGE_DATE = "2026-09-26";
 const OLD_DEFAULT_DAILY_RATE = 695;
 const NEW_DEFAULT_DAILY_RATE = 755;
 const defaultDailyRateOn = (dk) => (dk && String(dk).slice(0,10) >= RATE_CHANGE_DATE) ? NEW_DEFAULT_DAILY_RATE : OLD_DEFAULT_DAILY_RATE;
-const NO_RATE_CHANGE_BRANCH_IDS = [3, 4]; // Branch 3 (Southwoods) and Branch 4 -> excluded from the P755 rate (keep their existing rate)
+const BRANCH_NEW_DAILY_RATE = 600; // Branch 3 (Southwoods) & Branch 4: new daily rate, effective Sept 26, 2026 onward ONLY (earlier dates unchanged)
+const BRANCH_RATE_IDS = [3, 4];
+const isBranchRateEmp = (emp) => BRANCH_RATE_IDS.includes(Number(emp && emp.branchId));
 const isLockedPeriod = (periodEnd) => String(periodEnd||"").slice(0,10) < RATE_CHANGE_DATE; // past payroll: saved records are never overwritten
 const DEFAULT_DAILY_RATE = NEW_DEFAULT_DAILY_RATE; // latest NCR rate (reference only)
 const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees
 const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "May N. Cortez"];
 const getDailyRate = (emp, dk) => {
   if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
+  if (isBranchRateEmp(emp) && dk && String(dk).slice(0,10) >= RATE_CHANGE_DATE) return BRANCH_NEW_DAILY_RATE; // Branch 3 & 4: P600 from Sept 26, 2026 onward
   if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) return PROVINCIAL_DAILY_RATE;
-  if (NO_RATE_CHANGE_BRANCH_IDS.includes(Number(emp.branchId))) return OLD_DEFAULT_DAILY_RATE; // Branch 3 (Southwoods) / Branch 4: the P755 change does NOT apply
   return defaultDailyRateOn(dk);
 };
 const getOTRate = (emp, dk) => getDailyRate(emp, dk) / 8 * 1.25;
@@ -2373,7 +2375,7 @@ export default function App() {
           if(dayMins<480){undertimeMins+=(480-dayMins);sg.utMins+=(480-dayMins);} // below 8 hrs/day counts as undertime
           const hol=holidays.find(h=>h.date===dk);
           if(hol){
-            holidayPay += hol.type==="regular" ? defaultDailyRateOn(dk) : dr*0.30;
+            holidayPay += hol.type==="regular" ? (isBranchRateEmp(emp) ? OLD_DEFAULT_DAILY_RATE : defaultDailyRateOn(dk)) : dr*0.30;
           }
         }
       }
@@ -3129,7 +3131,7 @@ export default function App() {
               ? <div style={{ background:C.successBg||"#ecfdf5",border:`1px solid ${C.success}`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.success }}>✅ Katapusan payroll — awtomatikong ibabawas sa bawat empleyadong may araw ng trabaho: SSS ₱{STATUTORY_DEDUCTIONS.sss} · Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} · PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} (kabuuan ₱{PAYROLL_DEDUCTIONS}). Kasama ang Manual Entry (may checkbox sa form kung hindi dapat bawasan ang isang empleyado), maliban kung nabawasan na sa payroll table. Nananatili ang Custom Deduction para sa ibang bawas.</div>
               : <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.text2 }}>ℹ️ Payroll sa ika-15 — walang SSS / Pag-IBIG / PhilHealth na bawas (sa katapusan lang ito)</div>}
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
-              <b>Daily Rate:</b> ₱{OLD_DEFAULT_DAILY_RATE} bago Sept 26, 2026 / ₱{NEW_DEFAULT_DAILY_RATE} Sept 26, 2026 pataas (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions (katapusan):</b> SSS ₱{STATUTORY_DEDUCTIONS.sss} + Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} + PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} = ₱{PAYROLL_DEDUCTIONS} — awtomatiko sa payroll na binabayaran sa katapusan (11–25 cutoff)
+              <b>Daily Rate:</b> ₱{OLD_DEFAULT_DAILY_RATE} bago Sept 26, 2026 / ₱{NEW_DEFAULT_DAILY_RATE} Sept 26, 2026 pataas (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) • ₱{BRANCH_NEW_DAILY_RATE} (Branch 3 at 4 — Sept 26, 2026 pataas) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions (katapusan):</b> SSS ₱{STATUTORY_DEDUCTIONS.sss} + Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} + PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} = ₱{PAYROLL_DEDUCTIONS} — awtomatiko sa payroll na binabayaran sa katapusan (11–25 cutoff)
             </div>
             <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
               <div style={{ fontWeight:800,fontSize:13,color:C.text,marginBottom:4 }}>✍️ Manual Payroll Entry</div>
