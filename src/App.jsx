@@ -141,15 +141,22 @@ const EXPENSE_CATEGORIES = ["Cost of Products/Ingredients", "Shipping Fee", "Off
 const ROLE_COLOR = { owner: "#d97706", admin: "#7c3aed", manager: "#2563eb", cashier: "#16a34a" };
 
 // ─── PAYROLL RATES ────────────────────────────────────────────────────────────
-const DEFAULT_DAILY_RATE = 695; // NCR rate
+// NCR daily rate BY EFFECTIVE DATE: P755 takes effect from Sept 26, 2026 onward; any earlier date stays at P695,
+// so past payroll periods are NOT changed. (Provincial / explicit employee rates are unchanged.)
+const RATE_CHANGE_DATE = "2026-09-26";
+const OLD_DEFAULT_DAILY_RATE = 695;
+const NEW_DEFAULT_DAILY_RATE = 755;
+const defaultDailyRateOn = (dk) => (dk && String(dk).slice(0,10) >= RATE_CHANGE_DATE) ? NEW_DEFAULT_DAILY_RATE : OLD_DEFAULT_DAILY_RATE;
+const isLockedPeriod = (periodEnd) => String(periodEnd||"").slice(0,10) < RATE_CHANGE_DATE; // past payroll: saved records are never overwritten
+const DEFAULT_DAILY_RATE = NEW_DEFAULT_DAILY_RATE; // latest NCR rate (reference only)
 const PROVINCIAL_DAILY_RATE = 560; // provincial-rate employees
 const PROVINCIAL_RATE_NAMES = ["Marina", "Jennifer", "Jennifer Flores", "May", "May N. Cortez"];
-const getDailyRate = (emp) => {
+const getDailyRate = (emp, dk) => {
   if (emp.dailyRate) return emp.dailyRate; // explicit override on the employee record takes priority
   if (PROVINCIAL_RATE_NAMES.some(n => emp.name?.toLowerCase().includes(n.toLowerCase()))) return PROVINCIAL_DAILY_RATE;
-  return DEFAULT_DAILY_RATE;
+  return defaultDailyRateOn(dk);
 };
-const getOTRate = (emp) => getDailyRate(emp) / 8 * 1.25;
+const getOTRate = (emp, dk) => getDailyRate(emp, dk) / 8 * 1.25;
 // Statutory deductions — taken AUTOMATICALLY, once a month, on the KATAPUSAN (end-of-month) payroll only:
 //   SSS ₱450 + Pag-IBIG ₱250 + PhilHealth ₱250 = ₱950 per employee that had at least one work day in the period.
 const STATUTORY_DEDUCTIONS = { sss: 450, pagibig: 250, philhealth: 250 };
@@ -238,7 +245,7 @@ function getCutoffPeriods(year, month) {
 // period_end) — upsert via on_conflict so re-generating the same payslip UPDATES the
 // existing record instead of creating a duplicate.
 async function savePayslipRecord(rec) {
-  await sb("payroll_records?on_conflict=emp_name,period_start,period_end","POST",[rec],{ Prefer:"resolution=merge-duplicates,return=minimal" });
+  await sb("payroll_records?on_conflict=emp_name,period_start,period_end","POST",[rec],{ Prefer:(isLockedPeriod(rec.period_end)?"resolution=ignore-duplicates,return=minimal":"resolution=merge-duplicates,return=minimal") }); // past periods: an already-saved record is left untouched
   return lastSbError === null; // return=minimal means a successful save has an empty body too
   // (parses to null just like a failure) — lastSbError is the reliable signal here.
 }
@@ -2350,28 +2357,32 @@ export default function App() {
     const payrollRows=employees.map(emp=>{
       let totalMins=0,workDays=0,otMins=0,undertimeMins=0,holidayPay=0;
       const start=new Date(payrollFrom),end=new Date(payrollTo);
-      const dailyRate=getDailyRate(emp);
+      const dailyRate=getDailyRate(emp,payrollTo); // rate shown on the row = rate in force at the end of the period
       const hourlyRate=dailyRate/8; // Daily Rate ÷ 8 = hourly rate, used for undertime deduction
+      const seg={}; // per-rate buckets: {rate:{days,otMins,utMins}}
       for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
         const dk=d.toISOString().split("T")[0];
         let dayMins=0;
         BRANCHES.forEach(b=>{const logs=getEmpDTR(emp.id,b.id,dk);dayMins+=logs.filter(l=>l.out).reduce((s,l)=>s+calcMins(l.in,l.out),0);});
         if(dayMins>0){
-          workDays++;totalMins+=dayMins;
-          if(dayMins>480)otMins+=(dayMins-480); // beyond 8 hrs/day counts as OT
-          if(dayMins<480)undertimeMins+=(480-dayMins); // below 8 hrs/day counts as undertime
+          const dr=getDailyRate(emp,dk); const sg=seg[dr]||(seg[dr]={days:0,otMins:0,utMins:0}); // rate of THIS day
+          workDays++;sg.days++;totalMins+=dayMins;
+          if(dayMins>480){otMins+=(dayMins-480);sg.otMins+=(dayMins-480);} // beyond 8 hrs/day counts as OT
+          if(dayMins<480){undertimeMins+=(480-dayMins);sg.utMins+=(480-dayMins);} // below 8 hrs/day counts as undertime
           const hol=holidays.find(h=>h.date===dk);
           if(hol){
-            holidayPay += hol.type==="regular" ? DEFAULT_DAILY_RATE : dailyRate*0.30;
+            holidayPay += hol.type==="regular" ? defaultDailyRateOn(dk) : dr*0.30;
           }
         }
       }
-      const otRate=getOTRate(emp);
       const otHours=Math.round((otMins/60)*100)/100;
       const undertimeHours=Math.round((undertimeMins/60)*100)/100;
-      const basicPay=workDays*dailyRate;
-      const otPay=Math.round(otHours*otRate*100)/100;
-      const undertimeDed=Math.round(undertimeHours*hourlyRate*100)/100;
+      let basicPay=0,otPay=0,undertimeDed=0;
+      Object.keys(seg).forEach(k=>{const r=+k,sg=seg[k];
+        basicPay+=sg.days*r;
+        otPay+=Math.round((Math.round((sg.otMins/60)*100)/100)*(r/8*1.25)*100)/100;
+        undertimeDed+=Math.round((Math.round((sg.utMins/60)*100)/100)*(r/8)*100)/100;
+      });
       const grossPay=basicPay+otPay+holidayPay-undertimeDed;
       // Statutory deductions (SSS ₱450 / Pag-IBIG ₱250 / PhilHealth ₱250) are taken AUTOMATICALLY on the katapusan
       // payroll (11-25 cutoff, paid at end of month) — never on the 26-10 cutoff (paid on the 15th), and never for an
@@ -3116,7 +3127,7 @@ export default function App() {
               ? <div style={{ background:C.successBg||"#ecfdf5",border:`1px solid ${C.success}`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.success }}>✅ Katapusan payroll — awtomatikong ibabawas sa bawat empleyadong may araw ng trabaho: SSS ₱{STATUTORY_DEDUCTIONS.sss} · Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} · PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} (kabuuan ₱{PAYROLL_DEDUCTIONS}). Kasama ang Manual Entry (may checkbox sa form kung hindi dapat bawasan ang isang empleyado), maliban kung nabawasan na sa payroll table. Nananatili ang Custom Deduction para sa ibang bawas.</div>
               : <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12,fontWeight:700,color:C.text2 }}>ℹ️ Payroll sa ika-15 — walang SSS / Pag-IBIG / PhilHealth na bawas (sa katapusan lang ito)</div>}
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.text2 }}>
-              <b>Daily Rate:</b> ₱{DEFAULT_DAILY_RATE} (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions (katapusan):</b> SSS ₱{STATUTORY_DEDUCTIONS.sss} + Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} + PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} = ₱{PAYROLL_DEDUCTIONS} — awtomatiko sa payroll na binabayaran sa katapusan (11–25 cutoff)
+              <b>Daily Rate:</b> ₱{OLD_DEFAULT_DAILY_RATE} bago Sept 26, 2026 / ₱{NEW_DEFAULT_DAILY_RATE} Sept 26, 2026 pataas (NCR) · ₱{PROVINCIAL_DAILY_RATE} (Provincial — Marina, Jennifer, May) &nbsp;|&nbsp; <b>OT:</b> Daily Rate ÷ 8 × 1.25/hr &nbsp;|&nbsp; <b>Deductions (katapusan):</b> SSS ₱{STATUTORY_DEDUCTIONS.sss} + Pag-IBIG ₱{STATUTORY_DEDUCTIONS.pagibig} + PhilHealth ₱{STATUTORY_DEDUCTIONS.philhealth} = ₱{PAYROLL_DEDUCTIONS} — awtomatiko sa payroll na binabayaran sa katapusan (11–25 cutoff)
             </div>
             <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:14,boxShadow:C.shadow }}>
               <div style={{ fontWeight:800,fontSize:13,color:C.text,marginBottom:4 }}>✍️ Manual Payroll Entry</div>
@@ -3169,8 +3180,8 @@ export default function App() {
                   const holPay=parseFloat(manualPayrollHoliday)||0;
                   if(!emp){toast("Pumili ng employee!","err");return;}
                   if(days<=0){toast("Ilagay ang days worked!","err");return;}
-                  const dailyRate=getDailyRate(emp);
-                  const otRate=getOTRate(emp);
+                  const dailyRate=getDailyRate(emp,payrollFrom);
+                  const otRate=getOTRate(emp,payrollFrom);
                   const hourlyRate=dailyRate/8;
                   const basicPay=days*dailyRate;
                   const otPay=Math.round(otHrs*otRate*100)/100;
@@ -3223,7 +3234,7 @@ export default function App() {
           {adminTab==="holidays"&&(<div>
             <div style={PT}>🎌 Holiday Management</div>
             <div style={{ background:C.infoBg,border:`1px solid ${C.info}33`,borderRadius:10,padding:"10px 14px",margin:"10px 0 14px",fontSize:11,color:C.text2 }}>
-              <b>Regular Holiday:</b> flat ₱{DEFAULT_DAILY_RATE} extra pay (kahit ano ang Daily Rate ng employee) &nbsp;|&nbsp; <b>Special Holiday:</b> +30% ng sariling Daily Rate ng employee
+              <b>Regular Holiday:</b> flat ₱{OLD_DEFAULT_DAILY_RATE} (bago Sept 26) / ₱{NEW_DEFAULT_DAILY_RATE} (Sept 26 pataas) extra pay (kahit ano ang Daily Rate ng employee) &nbsp;|&nbsp; <b>Special Holiday:</b> +30% ng sariling Daily Rate ng employee
             </div>
             <div style={{ background:"white",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:16,boxShadow:C.shadow }}>
               <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end" }}>
